@@ -1,53 +1,36 @@
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#eaf7f6","primaryBorderColor":"#087e90","primaryTextColor":"#103c54","lineColor":"#087e90","fontFamily":"Arial"}}}%%
-erDiagram
-    direction LR
-    PATIENT ||--o{ ENCOUNTER : has
-    ENCOUNTER ||--o{ CHARGE : receives
-    SERVICE_CATALOG ||--o{ CHARGE : prices
-    SERVICE_CATALOG ||--o{ PAYER_RATE : overrides
-    ENCOUNTER ||--o| INVOICE : finalises
-    INVOICE ||--|{ INVOICE_LINE : contains
-    CHARGE ||--o| INVOICE_LINE : copied_to
-    INVOICE ||--o{ PAYMENT : settled_by
-
-    PATIENT {
-        string patient_id PK
-        string display_label
-    }
-    ENCOUNTER {
-        string encounter_id PK
-        string patient_id FK
-        string setting
-        string payer_route
-    }
-    SERVICE_CATALOG {
-        string service_code PK
-        int list_price_paise
-        string tax_code
-    }
-    PAYER_RATE {
-        string service_code PK, FK
-        string payer_kind PK
-        int unit_price_paise
-    }
-    CHARGE {
-        int charge_id PK
-        string encounter_id FK
-        string source_event_id UK
-        int amount_paise
-    }
-    INVOICE {
-        int invoice_id PK
-        string encounter_id FK, UK
-        int total_paise
-    }
-    INVOICE_LINE {
-        int invoice_line_id PK
-        int invoice_id FK
-        int charge_id FK, UK
-    }
-    PAYMENT {
-        int payment_id PK
-        int invoice_id FK
-        int amount_paise
-    }
+---
+config:
+  theme: base
+  themeVariables:
+    fontFamily: Arial
+    fontSize: 18px
+    primaryColor: "#DDF7F3"
+    primaryBorderColor: "#078E9B"
+    primaryTextColor: "#173C55"
+    lineColor: "#16869B"
+  flowchart:
+    curve: linear
+    nodeSpacing: 24
+    rankSpacing: 32
+---
+flowchart LR
+  P["PATIENT"] ---|1| H{"HAS"} ---|N| E["ENCOUNTER"]
+  E ---|1| R{"RECORDS"} ---|N| C["CHARGE"]
+  E ---|1| B{"BILLED BY"} ---|0..1| I["INVOICE"]
+  C ---|N| L{"APPEARS ON"} ---|1| I
+  I ---|1| S{"SETTLED BY"} ---|N| T["RECEIPT"]
+  pa(["patient_id PK"]) --- P
+  pb(["display_label"]) --- P
+  ea(["encounter_id PK"]) --- E
+  eb(["setting / payer_route"]) --- E
+  ca(["source_event_id unique"]) --- C
+  cb(["price + tax snapshot"]) --- C
+  ia(["invoice_no unique"]) --- I
+  ib(["total_paise"]) --- I
+  ta(["amount_paise"]) --- T
+  classDef entity fill:#DDF7F3,stroke:#078E9B,stroke-width:2px,color:#173C55,font-weight:bold;
+  classDef relation fill:#FFF1DE,stroke:#F4A03A,stroke-width:2px,color:#173C55,font-weight:bold;
+  classDef attr fill:#FFFFFF,stroke:#80B9C5,stroke-width:1.5px,color:#314D5D;
+  class P,E,C,I,T entity;
+  class H,R,B,L,S relation;
+  class pa,pb,ea,eb,ca,cb,ia,ib,ta attr;

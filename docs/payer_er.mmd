@@ -1,50 +1,35 @@
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#eaf7f6","primaryBorderColor":"#087e90","primaryTextColor":"#103c54","lineColor":"#087e90","fontFamily":"Arial"}}}%%
-erDiagram
-    direction LR
-    PATIENT ||--o{ ENCOUNTER : has
-    PATIENT ||--o{ COVERAGE : holds
-    ENCOUNTER ||--o| PREAUTH : requests
-    COVERAGE ||--o{ PREAUTH : supports
-    ENCOUNTER ||--o| INVOICE : produces
-    INVOICE ||--o| CLAIM : submitted_as
-    COVERAGE ||--o{ CLAIM : used_by
-    PREAUTH |o--o| CLAIM : supports
-    INVOICE ||--o{ PAYMENT : receives
-
-    PATIENT {
-        string patient_id PK
-    }
-    ENCOUNTER {
-        string encounter_id PK
-        string patient_id FK
-        string payer_route
-    }
-    COVERAGE {
-        string coverage_id PK
-        string patient_id FK
-        string payer_kind
-        boolean preauth_required
-    }
-    PREAUTH {
-        int preauth_id PK
-        string encounter_id FK, UK
-        string coverage_id FK
-        string status
-    }
-    INVOICE {
-        int invoice_id PK
-        string encounter_id FK, UK
-        int total_paise
-    }
-    CLAIM {
-        int claim_id PK
-        int invoice_id FK, UK
-        string coverage_id FK
-        int preauth_id FK
-    }
-    PAYMENT {
-        int payment_id PK
-        int invoice_id FK
-        string payer_kind
-        int amount_paise
-    }
+---
+config:
+  theme: base
+  themeVariables:
+    fontFamily: Arial
+    fontSize: 18px
+    primaryColor: "#DDF7F3"
+    primaryBorderColor: "#078E9B"
+    primaryTextColor: "#173C55"
+    lineColor: "#16869B"
+  flowchart:
+    curve: linear
+    nodeSpacing: 27
+    rankSpacing: 34
+---
+flowchart LR
+  E["ENCOUNTER"] ---|1| COVR{"HAS"} ---|1| C["COVERAGE"]
+  C ---|1| AUTH{"REQUESTS"} ---|0..N| P["PREAUTH"]
+  E ---|1| BILL{"GENERATES"} ---|0..1| I["INVOICE"]
+  I ---|1| SUB{"SUPPORTS"} ---|0..1| CL["CLAIM"]
+  C ---|1| FOR{"USED FOR"} ---|0..1| CL
+  CL ---|1| PAID{"PAID BY"} ---|0..N| R["RECEIPT"]
+  ea(["encounter_id PK"]) --- E
+  ca(["payer route"]) --- C
+  cb(["member_ref"]) --- C
+  pa(["requested / approved"]) --- P
+  ia(["invoice_no"]) --- I
+  cla(["status / approved"]) --- CL
+  ra(["amount / payer kind"]) --- R
+  classDef entity fill:#DDF7F3,stroke:#078E9B,stroke-width:2px,color:#173C55,font-weight:bold;
+  classDef relation fill:#FFF1DE,stroke:#F4A03A,stroke-width:2px,color:#173C55,font-weight:bold;
+  classDef attr fill:#FFFFFF,stroke:#80B9C5,stroke-width:1.5px,color:#314D5D;
+  class E,C,P,I,CL,R entity;
+  class COVR,AUTH,BILL,SUB,FOR,PAID relation;
+  class ea,ca,cb,pa,ia,cla,ra attr;

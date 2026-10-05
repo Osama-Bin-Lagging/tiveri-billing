@@ -1,71 +1,91 @@
 # Tiveri Billing
 
-A local DH 308 prototype for a small to mid-sized Indian hospital. It connects an invented HIS service event to a running bill, final invoice, payer decision and actual receipt. The interface, HTTP API and SQLite database all run from this repository.
+A working DH 308 teaching prototype for a 20 to 50 bed Indian hospital. The website uses Next.js, the API uses FastAPI, and records persist in PostgreSQL. All patient labels, payer references, prices and clinical details are invented.
 
-All patient labels, prices, policy references and payer decisions are synthetic. This project has no live HIS, insurer, PM-JAY, CGHS, ABDM or NHCX connection. It has no authentication or production tax engine, so do not deploy it as a public patient system or enter real patient details.
+This prototype accepts HIS-style service events and builds a running bill. It supports OPD, IPD, emergency and day care encounters; payer rate cards; room stays; packages; batch-tracked pharmacy dispensing; effective-dated tax settings; advances and refunds; simulated TPA and PM-JAY workflows; claims and receipts; GSTR-1 review; receivables; reports; and an audit trail.
 
-## Run locally
+External HIS, insurer, PM-JAY, CGHS and GST portal actions are simulated. Do not enter real patient details or use the demo tax settings for real invoices. The app has no user authentication.
 
-Python 3.10 or later is enough. No package install or build step is needed.
+## Fastest local start: Docker
 
-```powershell
-python backend/server.py
-```
-
-On the project computer, Python is bundled with Codex but is not on the normal `PATH`. This command runs the same server there:
+Install Docker Desktop, then from the repository root:
 
 ```powershell
-& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" backend/server.py
+docker compose up --build
 ```
 
-Open <http://127.0.0.1:8000/>. The app creates `demo.sqlite3` in the repository root. Stop with Ctrl+C. Set `TIVERI_DB` to another path to use a separate SQLite file, or use `--port 8080` to change the local port.
+Open http://127.0.0.1:3000. API documentation is at http://127.0.0.1:8000/docs. PostgreSQL is exposed only on localhost port 55433. The demo database seeds itself on first start. To restore the original invented cases, use the Reset button under Audit or call POST /api/demo/reset. Data persists in the Compose volume across restarts.
 
-## Try the workflow
+## Native local start
 
-1. Open the `Demo Patient A` OPD self-pay case. Its consultation and lab events are already in the running bill. Finalise the bill and record a patient receipt.
-2. Open `Demo Patient B` for private insurance. Request an invented preauthorisation, record the simulated approval, finalise the bill, submit a claim and record the final claim decision. Notice that the balance does not change until you record a receipt.
-3. Open `Demo Patient C` to see a PM-JAY package placeholder. The app blocks patient copayment for this sample package. It does not verify eligibility or an official HBP rate.
-4. Open the CGHS and corporate cases to see payer-specific example rates and claim paths. Actual rate cards and contract rules would have to be loaded and validated.
-5. Create a new training encounter to enter your own invented case. Use `Reset demo` to restore the five original cases.
+Requirements: Node.js 24, Python 3.12, PostgreSQL 16. Create a PostgreSQL database called `tiveri_demo` and a user with rights to create tables. Set `DATABASE_URL` to its connection string. The app creates tables and synthetic seed cases automatically.
 
-## Components
-
-- `frontend/`: responsive HTML, CSS and JavaScript.
-- `backend/server.py`: local HTTP API and billing rules.
-- `backend/schema.sql`: SQLite tables, foreign keys, checks and indexes.
-- `docs/*.mmd`: Mermaid ER diagram source. Rendered PNGs are in the same folder and used in the presentation.
-- `tests/test_api.py`: integration checks using a temporary database and a running server.
-
-Important database rules: a HIS `source_event_id` is unique, the chosen unit rate is copied into each charge, an encounter has at most one final invoice, a charge appears on at most one invoice line, and payer approval is recorded apart from payment. All monetary values are integer paise.
-
-## API
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/api/health` | Server and SQLite health |
-| GET | `/api/state` | Read the demo workspace |
-| POST | `/api/encounters` | Open a synthetic case |
-| POST | `/api/his/events` | Record a unique service event |
-| POST | `/api/preauth` | Simulate a preauthorisation request |
-| POST | `/api/preauth/{id}/decision` | Simulate its response |
-| POST | `/api/invoices` | Finalise an itemised bill |
-| POST | `/api/claims` | Submit a demo payer claim |
-| POST | `/api/claims/{id}/decision` | Simulate final approval |
-| POST | `/api/payments` | Record a receipt and reduce balance |
-| POST | `/api/demo/reset` | Restore invented cases |
-
-## Test
+In terminal 1, from the repository root:
 
 ```powershell
-python -m unittest discover -s tests -v
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+$env:DATABASE_URL = "postgresql://USER:PASSWORD@127.0.0.1:5432/tiveri_demo"
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-On the project computer, replace `python` with the bundled executable path shown above to run the tests.
+In terminal 2:
 
-The tests launch the backend on a free loopback port, use a temporary SQLite database, send real HTTP requests, and inspect the resulting records. The separate browser check used for the project presentation clicks through the website itself.
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
 
-## Scope for a real hospital
+Open http://127.0.0.1:3000. `frontend/next.config.ts` sends same-origin `/api/*` requests to the local FastAPI server. If the API uses a different address, set `API_INTERNAL_URL` before running or building Next.js.
 
-A real implementation needs role-based login, encrypted storage and backups, audit retention, current contracted tariff and GST rules, patient consent and privacy controls, clinical code validation, payer gateway access, and integration testing with the hospital's actual HIS. The current site intentionally does not claim to provide those controls.
+## What to show in the live demo
 
-Research and official source links are in [`docs/sources.md`](docs/sources.md).
+- Overview: live worklist and balances.
+- Encounters: create a synthetic patient, capture a HIS event, and finalise an itemised invoice.
+- Pharmacy: dispense a training item from a tracked batch and see its charge and tax snapshot appear on the encounter.
+- Claims: choose Demo Patient B for a simulated TPA preauthorisation, final invoice, claim decision and payer receipt. Approval alone does not reduce the balance.
+- PM-JAY: choose Demo Patient C, run the simulated beneficiary check, record simulated preauthorisation and finalise its package. Patient collection is blocked.
+- Tax review: Table 4, 7, 8, 12 and 13 review data for the selected month. Downloaded JSON is a review packet, not an upload-ready government return.
+- Receivables and Reports: outstanding age buckets, payer mix and department totals.
+- Catalog: view services and change a future payer rate. Existing charge prices stay unchanged.
+- Audit: inspect write history and reset the synthetic cases.
+
+## Important database rules
+
+- A HIS `source_event_id` is unique. An identical retry returns the original charge; a changed retry is rejected.
+- Service prices and tax classification are copied to each charge. Final invoice lines copy them again.
+- An encounter has one final invoice. Every charge can appear on only one final invoice.
+- A payer approval creates no receipt. Only a posted receipt reduces the outstanding balance.
+- PM-JAY demo encounters block patient collection and require a simulated check plus preauthorisation for the seeded IPD case.
+- Stock dispensing uses an unexpired batch with enough quantity and posts stock and charge in one database transaction.
+- Amounts are stored as integer paise. Tax calculations use the seeded effective-dated rule on charge capture.
+- The tax and HSN values are teaching assumptions. A real hospital must load current item-level classifications and contracted prices.
+
+## Tests
+
+With a local PostgreSQL database available:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_api.py -q
+cd frontend
+npm run build
+```
+
+The API tests reset the synthetic database and exercise OPD, TPA, PM-JAY, stock, room rent, packages, payment, refunds, tax review and receivables. A Playwright browser test was also run against the live local Next.js and FastAPI servers.
+
+## Project layout
+
+- `frontend/app/`: Next.js UI
+- `backend/app/main.py`: FastAPI endpoints and billing rules
+- `backend/app/schema.sql`: PostgreSQL schema
+- `tests/test_api.py`: database-backed API scenarios
+- `docs/core_er.mmd`, `docs/payer_er.mmd`: Chen-style Mermaid ER source used by the presentation
+- `docs/api_contract.md`: API summary
+- `docs/sources.md`: course and official research sources
+- `presentation/DH308_HIS_Billing_Final.pptx`: final 24-slide deck without speaker notes
+- `docker-compose.yml`: local three-service stack
+
+## Deployment boundary
+
+The Compose files can run on a private AWS EC2 instance for a classroom demonstration. Keep ports behind a VPN or security group that allows only the presentation team. A hospital deployment needs authentication and roles, TLS, secrets management, encryption, backups, monitoring, an approved data retention policy, real payer/HIS integration agreements, and reviewed tax/rate masters. The synthetic demo does not include these controls. Do not expose it publicly or store personal health information.

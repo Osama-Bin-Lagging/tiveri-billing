@@ -7,3 +7,12 @@ node_modules/
 .playwright/
 test-results/
 .DS_Store
+.venv/
+.pytest_cache/
+.next/
+frontend/out/
+.env
+.env.local
+.env.*.local
+*.log
+.work/
