@@ -1,0 +1,53 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#eaf7f6","primaryBorderColor":"#087e90","primaryTextColor":"#103c54","lineColor":"#087e90","fontFamily":"Arial"}}}%%
+erDiagram
+    direction LR
+    PATIENT ||--o{ ENCOUNTER : has
+    ENCOUNTER ||--o{ CHARGE : receives
+    SERVICE_CATALOG ||--o{ CHARGE : prices
+    SERVICE_CATALOG ||--o{ PAYER_RATE : overrides
+    ENCOUNTER ||--o| INVOICE : finalises
+    INVOICE ||--|{ INVOICE_LINE : contains
+    CHARGE ||--o| INVOICE_LINE : copied_to
+    INVOICE ||--o{ PAYMENT : settled_by
+
+    PATIENT {
+        string patient_id PK
+        string display_label
+    }
+    ENCOUNTER {
+        string encounter_id PK
+        string patient_id FK
+        string setting
+        string payer_route
+    }
+    SERVICE_CATALOG {
+        string service_code PK
+        int list_price_paise
+        string tax_code
+    }
+    PAYER_RATE {
+        string service_code PK, FK
+        string payer_kind PK
+        int unit_price_paise
+    }
+    CHARGE {
+        int charge_id PK
+        string encounter_id FK
+        string source_event_id UK
+        int amount_paise
+    }
+    INVOICE {
+        int invoice_id PK
+        string encounter_id FK, UK
+        int total_paise
+    }
+    INVOICE_LINE {
+        int invoice_line_id PK
+        int invoice_id FK
+        int charge_id FK, UK
+    }
+    PAYMENT {
+        int payment_id PK
+        int invoice_id FK
+        int amount_paise
+    }

@@ -1,0 +1,50 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#eaf7f6","primaryBorderColor":"#087e90","primaryTextColor":"#103c54","lineColor":"#087e90","fontFamily":"Arial"}}}%%
+erDiagram
+    direction LR
+    PATIENT ||--o{ ENCOUNTER : has
+    PATIENT ||--o{ COVERAGE : holds
+    ENCOUNTER ||--o| PREAUTH : requests
+    COVERAGE ||--o{ PREAUTH : supports
+    ENCOUNTER ||--o| INVOICE : produces
+    INVOICE ||--o| CLAIM : submitted_as
+    COVERAGE ||--o{ CLAIM : used_by
+    PREAUTH |o--o| CLAIM : supports
+    INVOICE ||--o{ PAYMENT : receives
+
+    PATIENT {
+        string patient_id PK
+    }
+    ENCOUNTER {
+        string encounter_id PK
+        string patient_id FK
+        string payer_route
+    }
+    COVERAGE {
+        string coverage_id PK
+        string patient_id FK
+        string payer_kind
+        boolean preauth_required
+    }
+    PREAUTH {
+        int preauth_id PK
+        string encounter_id FK, UK
+        string coverage_id FK
+        string status
+    }
+    INVOICE {
+        int invoice_id PK
+        string encounter_id FK, UK
+        int total_paise
+    }
+    CLAIM {
+        int claim_id PK
+        int invoice_id FK, UK
+        string coverage_id FK
+        int preauth_id FK
+    }
+    PAYMENT {
+        int payment_id PK
+        int invoice_id FK
+        string payer_kind
+        int amount_paise
+    }
