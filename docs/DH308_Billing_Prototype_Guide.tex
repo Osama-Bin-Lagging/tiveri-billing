@@ -1,0 +1,253 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=20mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\definecolor{navy}{HTML}{13394E}
+\definecolor{teal}{HTML}{0B8F91}
+\definecolor{pale}{HTML}{E9F4F2}
+\definecolor{muted}{HTML}{526B77}
+\hypersetup{colorlinks=true,linkcolor=teal,urlcolor=teal}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small DH 308 | HIS billing prototype}
+\fancyhead[R]{\small Build and demo guide}
+\fancyfoot[C]{\thepage}
+\setlength{\headheight}{14pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\setlist[itemize]{leftmargin=6mm,itemsep=2pt}
+\setlist[enumerate]{leftmargin=7mm,itemsep=3pt}
+\lstset{basicstyle=\ttfamily\footnotesize,breaklines=true,frame=single,rulecolor=\color{muted},backgroundcolor=\color{pale},showstringspaces=false,columns=fullflexible}
+\newcommand{\sect}[1]{\section*{\color{navy}#1}\addcontentsline{toc}{section}{#1}}
+\begin{document}
+
+\vspace*{24mm}
+{\color{teal}\Large DH 308 final project}\par
+\vspace{7mm}
+{\color{navy}\Huge Hospital billing integrated with HIS}\par
+\vspace{7mm}
+{\Large Prototype build, ER diagram, API and AWS demo guide}\par
+\vspace{12mm}
+\colorbox{pale}{\parbox{0.91\textwidth}{This guide matches the final 24-slide presentation and the Tiveri Billing repository. The working teaching prototype uses Next.js, FastAPI and PostgreSQL. All patients, prices, tax settings, payer decisions and documents in the demo are invented.}}
+\vfill
+Prepared 5 October 2026\par
+Source code: \url{https://github.com/sreehariX/tiveri-billing}\par
+\newpage
+\tableofcontents
+\newpage
+
+\sect{1. Scope and assumptions}
+The prototype is designed for a 20 to 50 bed Indian hospital. A local HIS-style event records a delivered service, the billing API prices it from a payer rate card, and a running encounter collects charges. Staff can dispense a batch-tracked pharmacy item, add a room stay or package, collect an advance, issue one final invoice, record a simulated payer claim, and post actual receipts. The dashboard, receivables report, tax review and audit trail read the same PostgreSQL database.
+
+It demonstrates OPD, IPD, emergency and day-care encounter types; self-pay, private TPA, PM-JAY, CGHS and corporate payer routes. The private insurance and PM-JAY paths are local simulations. No insurer, scheme, HIS or GST portal credentials are used. The site has no login and must contain only invented records.
+
+\begin{tabular}{p{0.28\textwidth}p{0.65\textwidth}}
+\toprule
+Implemented for demo & HIS event capture, payer prices, room and package charges, pharmacy stock and GST snapshots, advances and refunds, invoice finalisation, claims, receipts, GSTR-1 review, receivables, analytics and audit.\\
+\midrule
+Outside demo & Live eligibility, official claim submission, certified ABDM/NHCX exchange, portal-ready GSTR-1 filing, authentication, production privacy controls and reviewed hospital tariffs.\\
+\bottomrule
+\end{tabular}
+
+The uploaded bill samples informed the kinds of charge lines to support. Only cropped, de-identified examples appear in the slides. The friend presentation influenced visual layout only.
+
+\sect{2. Architecture and data flow}
+\begin{enumerate}
+\item The Next.js page at port 3000 calls same-origin \texttt{/api} paths. Its configuration forwards those requests to FastAPI at port 8000.
+\item FastAPI validates the action, runs billing rules in a database transaction and writes PostgreSQL rows. Integer paise represent money.
+\item A unique \texttt{source\_event\_id} protects against duplicate HIS charges. A matching retry returns the original charge; a conflicting retry returns HTTP 409.
+\item The service master, payer rate and effective tax rule determine a charge. Their price and tax values are copied onto the charge, then onto the final invoice line.
+\item Payer preauthorisation and claim decisions are separate from receipts. Only an advance allocation or posted receipt reduces the invoice balance.
+\item Reports read final invoices, tax snapshots, receipts and claims. The GSTR-1 JSON is a review packet, not a portal upload.
+\end{enumerate}
+An eventual standards-based exchange could map encounters, charge items, invoices, coverage and claims to applicable FHIR resources and NRCeS ABDM/NHCX profiles. The current API is a local teaching contract, not a certified exchange.
+
+\newpage
+\sect{3. Chen ER design and PostgreSQL}
+In Chen notation, rectangles are entities, diamonds are relationships and ovals are attributes. Cardinalities are written next to relationship edges. The presentation includes rendered diagrams. Their editable Mermaid source and PNG outputs are \texttt{docs/core\_er.mmd}, \texttt{docs/payer\_er.mmd}, \texttt{docs/core\_er.png} and \texttt{docs/payer\_er.png} in the repository.
+
+\begin{center}
+\begin{tikzpicture}[
+  entity/.style={draw=teal,rectangle,fill=pale,minimum width=20mm,minimum height=9mm,font=\small},
+  relation/.style={draw=teal,diamond,fill=white,aspect=1.6,inner sep=1pt,font=\scriptsize},
+  attribute/.style={draw=muted,ellipse,fill=white,inner sep=2pt,font=\scriptsize},
+  edge/.style={draw=teal,line width=0.6pt}]
+\node[entity] (p) at (0,0) {Patient};
+\node[relation] (h) at (2.1,0) {HAS};
+\node[entity] (e) at (4.2,0) {Encounter};
+\node[relation] (r) at (6.35,0) {RECORDS};
+\node[entity] (c) at (8.55,0) {Charge};
+\node[relation] (b) at (10.7,0) {BILLED IN};
+\node[entity] (i) at (12.85,0) {Invoice};
+\node[attribute] (pa) at (0,-1.5) {patient\_id};
+\node[attribute] (ea) at (4.2,-1.5) {encounter\_id};
+\node[attribute] (ca) at (8.55,-1.5) {source\_event\_id};
+\node[attribute] (ia) at (12.85,-1.5) {invoice\_id};
+\draw[edge] (p)--node[above,font=\scriptsize]{1}(h);
+\draw[edge] (h)--node[above,font=\scriptsize]{N}(e);
+\draw[edge] (e)--node[above,font=\scriptsize]{1}(r);
+\draw[edge] (r)--node[above,font=\scriptsize]{N}(c);
+\draw[edge] (c)--node[above,font=\scriptsize]{N}(b);
+\draw[edge] (b)--node[above,font=\scriptsize]{1}(i);
+\draw[edge] (p)--(pa);
+\draw[edge] (e)--(ea);
+\draw[edge] (c)--(ca);
+\draw[edge] (i)--(ia);
+\end{tikzpicture}
+\end{center}
+\textit{Core excerpt.} The payer diagram adds Coverage, Preauth, Claim and Receipt. Read the full two-page diagrams for optional relationships and key attributes.
+
+\begin{longtable}{p{0.27\textwidth}p{0.64\textwidth}}
+\toprule
+Table group & Main design rule\\
+\midrule
+\endfirsthead
+\toprule Table group & Main design rule\\\midrule\endhead
+Patients, encounters, coverages & One patient may have many encounters; the payer route and label belong to the encounter.\\
+Services, payer rates, tax rules & A service has a base price and tax rule; payer rates override future charge prices. Tax versions have effective dates.\\
+Charges, room stays, dispenses & Source event IDs are unique. Dispensing decrements an unexpired stock batch and creates its charge in one transaction.\\
+Invoices, invoice lines & One final invoice per encounter. Each charge appears in at most one invoice line. Invoice values are snapshots.\\
+Preauths, claims & A covered IPD case records a simulated preauth before final invoice and claim. Claim approval does not post cash.\\
+Advances, receipts, refunds & Separate tables preserve collection and refund history. A receipt reduces outstanding only when posted.\\
+Audit events & Writes create a timestamped action record for review.\\
+\bottomrule
+\end{longtable}
+The executable schema is \texttt{backend/app/schema.sql}. FastAPI applies it at startup and inserts synthetic seed records into an empty database. To redraw the ER diagrams, edit the Mermaid files, preserve rectangle/diamond/oval shapes and cardinality labels, render them with Mermaid CLI, then replace the corresponding PNGs in the slides.
+
+\sect{4. Backend and API contract}
+The backend is \texttt{backend/app/main.py} using FastAPI, Pydantic and Psycopg. It exposes interactive schemas at \url{http://127.0.0.1:8000/docs}. Each write checks the encounter state and the relevant payer or stock rule before it commits. The complete route list and request meanings are in \texttt{docs/api\_contract.md}.
+
+\begin{longtable}{p{0.39\textwidth}p{0.51\textwidth}}
+\toprule
+Route & Demonstrated use\\\midrule\endfirsthead
+\toprule Route & Demonstrated use\\\midrule\endhead
+\texttt{POST /api/encounters} & Create an invented patient encounter.\\
+\texttt{POST /api/his/events} & Capture a delivered service once.\\
+\texttt{POST /api/pharmacy/dispense} & Check stock, decrement batch and create a taxed charge.\\
+\texttt{POST /api/encounters/\{id\}/room-stays} & Capture dated IPD room days.\\
+\texttt{POST /api/packages/apply} & Apply an invented package and included lines.\\
+\texttt{POST /api/preauth}, \texttt{/decision} & Record local payer request and invented response.\\
+\texttt{POST /api/invoices} & Finalise one itemised invoice.\\
+\texttt{POST /api/claims}, \texttt{/decision} & Record a local claim and invented adjudication.\\
+\texttt{POST /api/receipts} & Post patient or payer money.\\
+\texttt{GET /api/gstr1}, \texttt{/api/ar} & Read tax review and aged receivables.\\
+\texttt{POST /api/demo/reset} & Restore synthetic cases when demo mode is on.\\
+\bottomrule
+\end{longtable}
+For example, an extra investigation on the seeded open OPD encounter is sent as:
+\begin{lstlisting}
+POST /api/his/events
+Content-Type: application/json
+
+{"encounter_id":"E-OPD-01","service_code":"XRAY",
+ "quantity":1,"source_event_id":"CLASS-XRAY-001"}
+\end{lstlisting}
+Resend the same payload to see \texttt{duplicate: true}. Keep the event ID fixed but change quantity to see HTTP 409. The frontend performs these calls through forms; this example explains the HIS integration boundary.
+
+\newpage
+\sect{5. Frontend and pharmacy GST}
+The frontend is in \texttt{frontend/app}. Next.js renders a single dashboard with Overview, Encounters, Pharmacy, Claims, Tax review, Receivables, Reports, Catalog and Audit views. It calls the FastAPI routes through the same-origin \texttt{/api} rewrite. The page uses synthetic labels so it can be shown without exposing a hospital bill.
+
+The pharmacy flow selects an item and unexpired batch, checks quantity, posts the dispense and stores the tax rule used at that moment. The charge master keeps an item code, description, HSN/SAC review field, tax category, effective GST setting, and stock batch. The sample \texttt{MED-A} is an invented training item at Rs 100 per unit. Two units have a Rs 200 base, illustrative 5\% GST of Rs 10, and a Rs 210 total. This is not a claim that every medicine carries 5\% GST. An unclassified item is blocked from final invoicing until reviewed.
+
+Qualified healthcare services are generally exempt under the applicable GST notification. The CBIC rate table also has a specific conditional 5\% entry for certain non-ICU rooms above Rs 5,000 per day. The supplied marketing article's blanket 18\% statement is not used. Actual medicine and device HSN classification must be reviewed item by item against the current schedule. The demo GSTR-1 packet has Tables 4, 7, 8, 12 and 13 for review; the official portal guide includes exempt supply reporting in Table 8 and separate B2B/B2C HSN summaries in Table 12. No government upload occurs.
+
+\sect{6. Run locally and test}
+\textbf{Fastest route with Docker Desktop.} From the repository root:
+\begin{lstlisting}
+docker compose up --build
+\end{lstlisting}
+Open \url{http://127.0.0.1:3000}. The three services are Next.js, FastAPI and PostgreSQL. PostgreSQL binds only to local port 55433. The Compose setup is supplied for repeatability; Docker was unavailable on the development computer, so this exact container path was not run there.
+
+\textbf{Native Windows route used for testing.} Install Node.js 24, Python 3.12 and PostgreSQL 16. Create a database named \texttt{tiveri\_demo} and a user with rights to create tables. In terminal 1 from the repository root:
+\begin{lstlisting}
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+$env:DATABASE_URL = "postgresql://USER:PASSWORD@127.0.0.1:5432/tiveri_demo"
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+\end{lstlisting}
+In terminal 2:
+\begin{lstlisting}
+cd frontend
+npm ci
+npm run dev
+\end{lstlisting}
+The frontend is at \url{http://127.0.0.1:3000}; API documentation is at \url{http://127.0.0.1:8000/docs}. If using a different API address, set \texttt{API\_INTERNAL\_URL} before starting or building Next.js.
+
+Check the native stack and restore the demo data:
+\begin{lstlisting}
+curl http://127.0.0.1:8000/api/health
+curl -X POST http://127.0.0.1:8000/api/demo/reset
+.\.venv\Scripts\python.exe -m pytest tests\test_api.py -q
+cd frontend
+npm run build
+\end{lstlisting}
+The database-backed tests cover OPD, TPA, PM-JAY, stock, room, package, payment, refund, tax review and receivables. The website was also exercised in a browser against the live local API and database. The demo reset endpoint must only be used with invented data.
+
+\sect{7. Live demonstration route}
+\begin{enumerate}
+\item Open Overview and show the live worklist and outstanding balance.
+\item In Encounters, create a synthetic encounter or select Demo Patient A. Add a HIS service event and inspect the running bill.
+\item In Pharmacy, dispense \texttt{MED-A} from an unexpired batch. Show quantity reduction, the separate taxable line, and its stored GST amount.
+\item Finalise a self-pay invoice and post a patient receipt.
+\item Open Demo Patient B. Record simulated TPA preauthorisation, finalise the IPD bill, submit a claim and record a payer decision. Show that approval alone leaves a balance, then post a payer receipt.
+\item Open Demo Patient C. Run the simulated PM-JAY check, preauthorisation and package claim. The demo blocks patient collection on that route.
+\item Open Tax review, Receivables, Reports and Audit. Download the review JSON only as a classroom example.
+\end{enumerate}
+Use Reset under Audit if another practice run has changed the original synthetic cases.
+
+\newpage
+\sect{8. Private AWS EC2 classroom deployment}
+This is a deployment plan for the synthetic demo; it was not deployed to AWS during development. Keep all application ports bound to loopback and reach the site by SSH tunnel.
+
+\begin{enumerate}
+\item Create an Ubuntu EC2 instance with an SSH key pair and sufficient disk space for the Docker images and PostgreSQL volume. In its security group, allow inbound TCP 22 from \emph{My IP} only. Do not add inbound 3000, 8000 or 55433.
+\item Connect with the username shown by EC2 for that AMI, commonly \texttt{ubuntu}. Install Docker Engine and the Compose plugin using Docker's current Ubuntu installation guide linked in Section 10.
+\item Install Git, clone the repository and start the three services:
+\end{enumerate}
+\begin{lstlisting}
+sudo apt-get update
+sudo apt-get install -y git
+git clone https://github.com/sreehariX/tiveri-billing.git
+cd tiveri-billing
+sudo docker compose up --build -d
+sudo docker compose ps
+curl http://127.0.0.1:8000/api/health
+\end{lstlisting}
+On the presentation laptop, open a second terminal:
+\begin{lstlisting}
+ssh -i KEY.pem -L 3000:127.0.0.1:3000 ubuntu@PUBLIC_IP
+\end{lstlisting}
+Keep the tunnel open, then visit \url{http://127.0.0.1:3000} on the laptop. The exact username and key permissions depend on the AMI and client. The Compose file binds all exposed ports to \texttt{127.0.0.1}, so the website is reachable through the tunnel rather than a public application port.
+
+The Compose password is a demo value. Do not place real patient information on this host. A real deployment requires authentication, roles, TLS, secret storage, encryption, backups, monitoring, retention rules, approved rates and authorised HIS/payer integrations.
+
+\sect{9. Future scope}
+For a larger hospital, add dedicated roles and approvals, multi-location configuration, deeper corporate credit rules, insurer-specific document templates, actual scheme and payer sandbox integrations, inventory procurement, stronger report reconciliation, performance testing, migration tooling and disaster recovery. Each integration should be validated against its current official contract and the hospital's policy.
+
+\sect{10. Source notes}
+Course lectures supplied with the assignment informed HIS, ER modelling, database, HL7, ICD/LOINC and ABDM context. The other group's presentation informed visual treatment only. The ERP Group article supplied by the user was used to identify possible workflows, not as authority for numeric claims or universal tax rates.
+
+\begin{enumerate}
+\item CBIC goods and services rate table: \url{https://cbic-gst.gov.in/hindi/gst-goods-services-rates.html}
+\item GST portal GSTR-1 guide: \url{https://tutorial.gst.gov.in/userguide/returns/GSTR_1.htm}
+\item NHA PM-JAY operations manual: \url{https://nha.gov.in/img/resources/Operation%20Manual%20for%20AB%20PM-JAY.pdf}
+\item NHA Health Benefit Package manual: \url{https://nha.gov.in/img/resources/HBP-2.2-manual.pdf}
+\item IRDAI health insurance department: \url{https://irdai.gov.in/health-dept}
+\item NRCeS ABDM FHIR R4 guide: \url{https://www.nrces.in/ndhm/fhir/r4/}
+\item AWS EC2 SSH guide: \url{https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-ssh.html}
+\item AWS EC2 security groups: \url{https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/changing-security-group.html}
+\item Docker Engine on Ubuntu: \url{https://docs.docker.com/engine/install/ubuntu/}
+\item Docker Compose plugin: \url{https://docs.docker.com/compose/install/linux/}
+\end{enumerate}
+\end{document}

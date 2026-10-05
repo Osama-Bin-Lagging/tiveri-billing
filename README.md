@@ -83,6 +83,8 @@ The API tests reset the synthetic database and exercise OPD, TPA, PM-JAY, stock,
 - `docs/core_er.mmd`, `docs/payer_er.mmd`: Chen-style Mermaid ER source used by the presentation
 - `docs/api_contract.md`: API summary
 - `docs/sources.md`: course and official research sources
+- `docs/DH308_Billing_Prototype_Guide.pdf`: illustrated local build and AWS classroom demo guide
+- `docs/DH308_Billing_Prototype_Guide.tex`: editable guide source
 - `presentation/DH308_HIS_Billing_Final.pptx`: final 24-slide deck without speaker notes
 - `docker-compose.yml`: local three-service stack
 
