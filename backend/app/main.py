@@ -27,7 +27,7 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 ROUTES = {"SELF", "PRIVATE", "PMJAY", "CGHS", "CORPORATE"}
 SETTINGS = {"OPD", "IPD", "EMERGENCY", "DAY_CARE"}
 PUBLIC_TABLES = ("patients", "encounters", "coverages", "tax_rules", "services", "payer_rates", "pharmacy_items", "stock_batches", "package_catalog", "room_stays", "charges", "dispenses", "preauths", "invoices", "invoice_lines", "claims", "advances", "receipts", "refunds", "audit_events")
-TABLES = PUBLIC_TABLES + ("staff_users", "auth_sessions", "clinical_notes", "prescriptions", "coding_reviews")
+TABLES = PUBLIC_TABLES + ("staff_users", "auth_sessions", "clinical_notes", "prescriptions")
 
 
 def db() -> psycopg.Connection:
@@ -62,9 +62,7 @@ def seed_staff(conn: psycopg.Connection) -> None:
     for username, display_name, role in [
         ("admin", "Riya Menon", "ADMIN"),
         ("doctor", "Dr Mira Sen", "DOCTOR"),
-        ("coder", "Aarav Nair", "CODER"),
         ("pharmacy", "Nisha Shah", "PHARMACY"),
-        ("billing", "Riya Menon", "BILLING"),
     ]:
         salt = secrets.token_hex(16)
         conn.execute("""INSERT INTO staff_users(username,display_name,role,password_salt,password_hash)
@@ -151,7 +149,7 @@ def seed_demo(conn: psycopg.Connection) -> None:
         ("CARE_EXEMPT", "EXEMPT", 0, "9993", "Healthcare exemption requires qualification review"),
         ("ROOM_5_DEMO", "TAXABLE", 500, "9993", "Demo: specified non-ICU room above Rs 5,000/day, subject to CBIC conditions"),
         ("MED_5_DEMO", "TAXABLE", 500, "3004", "Synthetic medicine tax setting; verify actual HSN and rate"),
-        ("MED_NIL_DEMO", "NIL", 0, "3004", "Illustrative member of the specified nil-rated medicine category; not a real product classification"),
+        ("MED_NIL_DEMO", "NIL", 0, "3006", "Contraceptive products are listed at nil rate in the CBIC schedule; training SKU only"),
         ("DEVICE_5_DEMO", "TAXABLE", 500, "9018", "Synthetic medical device; verify actual HSN and rate"),
         ("REVIEW_REQUIRED", "REVIEW", 0, "", "Finance must classify this item before invoicing"),
     ]
@@ -165,7 +163,7 @@ def seed_demo(conn: psycopg.Connection) -> None:
         ("WARD", "General ward, one day", "ROOM", "ROOM", 230000, "CARE_EXEMPT"),
         ("PRIVATE_ROOM", "Private room, one day", "ROOM", "ROOM", 600000, "ROOM_5_DEMO"),
         ("MED_A", "Paracetamol 500 mg, training SKU", "PHARMACY", "PHARMACY", 10000, "MED_5_DEMO"),
-        ("MED_N", "Specified nil-rate medicine, training SKU", "PHARMACY", "PHARMACY", 180000, "MED_NIL_DEMO"),
+        ("MED_N", "Contraceptive product, training SKU", "PHARMACY", "PHARMACY", 18000, "MED_NIL_DEMO"),
         ("DEVICE_B", "Medical device, training SKU", "PHARMACY", "DEVICE", 250000, "DEVICE_5_DEMO"),
         ("PMJAY_PKG", "PM-JAY training package", "PACKAGE", "PACKAGE", 1200000, "CARE_EXEMPT"),
         ("DAY_PKG", "Day-care procedure package", "PACKAGE", "PACKAGE", 600000, "CARE_EXEMPT"),
@@ -185,7 +183,7 @@ def seed_demo(conn: psycopg.Connection) -> None:
     conn.cursor().executemany("""INSERT INTO pharmacy_items(item_code,service_code,display_name,requires_prescription,controlled_stock)
         VALUES (%s,%s,%s,%s,%s)""", [
             ("MED-A", "MED_A", "Paracetamol 500 mg, training SKU", True, False),
-            ("MED-N", "MED_N", "Specified nil-rate medicine, training SKU", True, False),
+            ("MED-N", "MED_N", "Contraceptive product, training SKU", True, False),
             ("DEVICE-B", "DEVICE_B", "Medical device, training SKU", False, False),
         ])
     conn.cursor().executemany("""INSERT INTO stock_batches(item_code,batch_no,expiry_date,quantity_available)
@@ -217,7 +215,7 @@ def seed_demo(conn: psycopg.Connection) -> None:
         (46, "Male", "O+", "9XXXXX1202", "Mysuru", "Penicillin listed", "Type 2 diabetes; admitted for planned procedure. Previous admission in 2024."),
         (37, "Female", "A+", "9XXXXX1203", "Bengaluru", "No known drug allergies", "Recent abdominal pain; scheme eligibility and package are simulated."),
         (62, "Male", "AB+", "9XXXXX1204", "Hubballi", "Sulfa listed", "Hypertension, on long-term follow-up."),
-        (33, "Female", "O-", "9XXXXX1205", "Bengaluru", "No known drug allergies", "Routine corporate wellness visit; no admission history."),
+        (33, "Female", "O-", "9XXXXX1205", "Bengaluru", "No known drug allergies", "Corporate OPD visit for family planning advice; no admission history."),
         (51, "Male", "B-", "9XXXXX1206", "Tumakuru", "No known drug allergies", "Past OPD consultation, now fully settled."),
         (43, "Female", "A-", "9XXXXX1207", "Mysuru", "No known drug allergies", "Prior inpatient procedure with insurer balance pending."),
         (39, "Male", "O+", "9XXXXX1208", "Bengaluru", "No known drug allergies", "Admitted for observation. Room choice remains open for the live billing demonstration."),
@@ -239,13 +237,10 @@ def seed_demo(conn: psycopg.Connection) -> None:
     ]:
         conn.execute("""INSERT INTO clinical_notes(encounter_id,author_username,note_text,provisional_icd_code,procedure_code)
             VALUES (%s,'doctor',%s,%s,%s)""", (eid, note_text, "R50.9" if eid == "E-OPD-01" else "Z00.0",
-            "CPT-DEMO-01" if eid == "E-OPD-01" else ""))
+            "CBC" if eid == "E-OPD-01" else ""))
     conn.execute("""INSERT INTO prescriptions(prescription_ref,encounter_id,item_code,quantity,instruction,author_username)
         VALUES ('RX-DEMO-01','E-OPD-01','MED-A',4,'After food, as directed','doctor'),
-               ('RX-DEMO-02','E-OPD-01','MED-N',1,'Training example only','doctor')""")
-    conn.execute("""INSERT INTO coding_reviews(encounter_id,diagnosis_code,diagnosis_label,review_note,author_username)
-        VALUES ('E-IPD-02','Z00.0','General medical examination','Synthetic classroom coding example','coder'),
-               ('E-IPD-03','Z00.0','General medical examination','Synthetic classroom coding example','coder')""")
+               ('RX-DEMO-02','E-OPD-05','MED-N',1,'Use as advised at the OPD visit','doctor')""")
     for eid, code, qty, source in [
         ("E-OPD-01", "CONSULT", 1, "SEED-OPD-CONSULT"),
         ("E-OPD-01", "CBC", 1, "SEED-OPD-CBC"),
@@ -315,14 +310,12 @@ async def demo_auth(request: Request, call_next):
         return JSONResponse({"detail": "Session expired. Sign in again"}, status_code=401)
     request.state.user = user
     if request.method in {"POST", "PUT", "PATCH", "DELETE"} and path != "/api/auth/logout":
-        required = "BILLING"
+        required = "ADMIN"
         if path.startswith("/api/clinical/") or path == "/api/his/events":
             required = "DOCTOR"
-        elif path.startswith("/api/coding/"):
-            required = "CODER"
         elif path == "/api/pharmacy/dispense":
             required = "PHARMACY"
-        if user["role"] != required and not (required == "BILLING" and user["role"] == "ADMIN"):
+        if user["role"] != required:
             return JSONResponse({"detail": f"{required.title()} role required for this action"}, status_code=403)
     return await call_next(request)
 
@@ -344,14 +337,6 @@ class PrescriptionIn(BaseModel):
     item_code: str
     quantity: int = Field(ge=1, le=100)
     instruction: str = Field(default="", max_length=300)
-
-
-class CodingReviewIn(BaseModel):
-    encounter_id: str
-    diagnosis_code: str
-    diagnosis_label: str = Field(min_length=3, max_length=160)
-    procedure_code: str = Field(default="", max_length=24)
-    review_note: str = Field(default="", max_length=500)
 
 
 @app.post("/api/auth/login")
@@ -404,20 +389,6 @@ def add_prescription(data: PrescriptionIn, request: Request):
             VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""", (ref, data.encounter_id, data.item_code,
             data.quantity, data.instruction.strip(), request.state.user["username"]))
         audit(conn, "PRESCRIPTION_ADDED", "prescription", ref)
-        return record
-
-
-@app.post("/api/coding/reviews")
-def add_coding_review(data: CodingReviewIn, request: Request):
-    code = data.diagnosis_code.upper().strip()
-    need(re.fullmatch(r"[A-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?", code), "Enter an ICD-style code")
-    with db() as conn:
-        encounter_for(conn, data.encounter_id)
-        need(one(conn, "SELECT 1 FROM clinical_notes WHERE encounter_id=%s", (data.encounter_id,)), "Doctor note required first")
-        record = one(conn, """INSERT INTO coding_reviews(encounter_id,diagnosis_code,diagnosis_label,procedure_code,review_note,author_username)
-            VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""", (data.encounter_id, code, data.diagnosis_label.strip(),
-            data.procedure_code.strip(), data.review_note.strip(), request.state.user["username"]))
-        audit(conn, "CODING_REVIEW_ADDED", "review", record["review_id"])
         return record
 
 
@@ -480,7 +451,6 @@ class InvoiceIn(BaseModel):
 
 class ClaimIn(BaseModel):
     invoice_id: int
-    diagnosis_code: str = "Z00"
     discharge_summary: str = "Synthetic discharge summary for classroom demonstration"
     documents: dict[str, bool] = Field(default_factory=lambda: {"itemised_bill": True, "discharge_summary": True})
 
@@ -569,7 +539,6 @@ def encounter_detail(encounter_id: str):
                 "prescriptions": rows(conn, """SELECT p.*,COALESCE((SELECT sum(d.quantity) FROM dispenses d
                     WHERE d.prescription_ref=p.prescription_ref),0) AS dispensed_quantity FROM prescriptions p
                     WHERE encounter_id=%s ORDER BY created_at DESC""", (encounter_id,)),
-                "coding_reviews": rows(conn, "SELECT * FROM coding_reviews WHERE encounter_id=%s ORDER BY created_at DESC,review_id DESC", (encounter_id,)),
                 "preauths": rows(conn, "SELECT * FROM preauths WHERE encounter_id=%s ORDER BY preauth_id", (encounter_id,)),
                 "invoice": inv,
                 "invoice_lines": rows(conn, "SELECT * FROM invoice_lines WHERE invoice_id=%s ORDER BY invoice_line_id", (inv["invoice_id"],)) if inv else [],
@@ -732,14 +701,14 @@ def dispense(data: DispenseIn):
             AND quantity_available>=%s ORDER BY expiry_date,batch_id LIMIT 1 FOR UPDATE""",
             (data.item_code, date.today(), data.quantity)), "No unexpired batch has sufficient stock")
         svc = service_for(conn, item["service_code"])
-        rule = tax_for(conn, svc["tax_rule_code"])
+        rule = tax_for(conn, "CARE_EXEMPT" if enc["setting"] == "IPD" else svc["tax_rule_code"])
         need(rule["tax_category"] != "REVIEW", "Item tax classification requires review")
         unit = price_for(conn, svc, enc)
         charge = one(conn, """INSERT INTO charges(encounter_id,source_event_id,service_code,description,department,
             quantity,unit_price_paise,tax_rule_code,tax_category,tax_rate_bps,hsn_sac)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
             (data.encounter_id, data.source_event_id, svc["service_code"], svc["description"], svc["department"],
-             data.quantity, unit, svc["tax_rule_code"], rule["tax_category"], rule["rate_bps"], rule["hsn_sac"]))
+             data.quantity, unit, rule["rule_code"], rule["tax_category"], rule["rate_bps"], rule["hsn_sac"]))
         conn.execute("UPDATE stock_batches SET quantity_available=quantity_available-%s WHERE batch_id=%s", (data.quantity, batch["batch_id"]))
         disp = one(conn, """INSERT INTO dispenses(encounter_id,item_code,batch_id,charge_id,quantity,prescription_ref)
             VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""", (data.encounter_id, data.item_code,
@@ -812,11 +781,10 @@ def submit_claim(data: ClaimIn):
         enc = encounter_for(conn, invoice["encounter_id"])
         need(enc["payer_route"] in {"PRIVATE", "PMJAY", "CGHS", "CORPORATE"}, "Self-pay invoice does not need a claim")
         need(not one(conn, "SELECT 1 FROM claims WHERE invoice_id=%s", (data.invoice_id,)), "Claim already submitted", 409)
-        need(re.fullmatch(r"[A-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?", data.diagnosis_code.upper()), "Enter a valid ICD-style diagnosis code")
         need(len(data.discharge_summary.strip()) >= 10, "Discharge summary required")
         need(data.documents.get("itemised_bill") and data.documents.get("discharge_summary"), "Itemised bill and discharge summary are required")
-        review = need(one(conn, """SELECT * FROM coding_reviews WHERE encounter_id=%s
-            ORDER BY created_at DESC,review_id DESC LIMIT 1""", (enc["encounter_id"],)), "Medical coder review required")
+        note = need(one(conn, """SELECT * FROM clinical_notes WHERE encounter_id=%s AND provisional_icd_code<>''
+            ORDER BY created_at DESC,note_id DESC LIMIT 1""", (enc["encounter_id"],)), "Doctor diagnosis required for the claim")
         cov = one(conn, "SELECT * FROM coverages WHERE encounter_id=%s", (enc["encounter_id"],))
         pre = latest_approved_preauth(conn, enc["encounter_id"])
         if cov["preauth_required"]:
@@ -826,7 +794,7 @@ def submit_claim(data: ClaimIn):
         record = one(conn, """INSERT INTO claims(invoice_id,coverage_id,preauth_id,submitted_paise,
             diagnosis_code,procedure_code,discharge_summary,documents) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
             (data.invoice_id, cov["coverage_id"], pre["preauth_id"] if pre else None,
-             submitted, review["diagnosis_code"], review["procedure_code"], data.discharge_summary.strip(), Jsonb(data.documents)))
+             submitted, note["provisional_icd_code"], note["procedure_code"], data.discharge_summary.strip(), Jsonb(data.documents)))
         audit(conn, "CLAIM_SUBMITTED_DEMO", "claim", record["claim_id"])
         return record
 

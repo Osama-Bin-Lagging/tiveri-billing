@@ -14,18 +14,21 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS history_summary TEXT NOT NULL DEFA
 CREATE TABLE IF NOT EXISTS staff_users (
   username TEXT PRIMARY KEY,
   display_name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('ADMIN','DOCTOR','CODER','PHARMACY','BILLING')),
+  role TEXT NOT NULL CHECK (role IN ('ADMIN','DOCTOR','PHARMACY')),
   password_salt TEXT NOT NULL,
   password_hash TEXT NOT NULL
 );
 ALTER TABLE staff_users DROP CONSTRAINT IF EXISTS staff_users_role_check;
-ALTER TABLE staff_users ADD CONSTRAINT staff_users_role_check CHECK (role IN ('ADMIN','DOCTOR','CODER','PHARMACY','BILLING'));
 CREATE TABLE IF NOT EXISTS auth_sessions (
   token_hash TEXT PRIMARY KEY,
   username TEXT NOT NULL REFERENCES staff_users(username),
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+DROP TABLE IF EXISTS coding_reviews;
+DELETE FROM auth_sessions WHERE username IN ('coder','billing');
+DELETE FROM staff_users WHERE username IN ('coder','billing');
+ALTER TABLE staff_users ADD CONSTRAINT staff_users_role_check CHECK (role IN ('ADMIN','DOCTOR','PHARMACY'));
 
 CREATE TABLE IF NOT EXISTS encounters (
   encounter_id TEXT PRIMARY KEY,
@@ -61,17 +64,6 @@ CREATE TABLE IF NOT EXISTS prescriptions (
   author_username TEXT NOT NULL REFERENCES staff_users(username),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS coding_reviews (
-  review_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
-  diagnosis_code TEXT NOT NULL,
-  diagnosis_label TEXT NOT NULL,
-  procedure_code TEXT NOT NULL DEFAULT '',
-  review_note TEXT NOT NULL DEFAULT '',
-  author_username TEXT NOT NULL REFERENCES staff_users(username),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-ALTER TABLE coding_reviews ADD COLUMN IF NOT EXISTS procedure_code TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS coverages (
   coverage_id TEXT PRIMARY KEY,
@@ -283,4 +275,3 @@ CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notes_encounter ON clinical_notes(encounter_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rx_encounter ON prescriptions(encounter_id,created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_coding_encounter ON coding_reviews(encounter_id,created_at DESC);

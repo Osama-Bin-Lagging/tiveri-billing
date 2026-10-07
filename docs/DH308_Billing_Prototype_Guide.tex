@@ -38,9 +38,9 @@
 \vspace{7mm}
 {\Large Prototype build, ER diagram, API and AWS demo guide}\par
 \vspace{12mm}
-\colorbox{pale}{\parbox{0.91\textwidth}{This guide matches the final 24-slide presentation and the Tiveri Billing repository. The working teaching prototype uses Next.js, FastAPI and PostgreSQL. All patients, prices, tax settings, payer decisions and documents in the demo are invented.}}
+\colorbox{pale}{\parbox{0.91\textwidth}{This guide matches the final 21-slide presentation and the Tiveri Billing repository. The working teaching prototype uses Next.js, FastAPI and PostgreSQL. All patients, prices, tax settings, payer decisions and documents in the demo are invented.}}
 \vfill
-Prepared 5 October 2026\par
+Prepared 7 October 2026\par
 Source code: \url{https://github.com/sreehariX/tiveri-billing}\par
 \newpage
 \tableofcontents
@@ -49,17 +49,17 @@ Source code: \url{https://github.com/sreehariX/tiveri-billing}\par
 \sect{1. Scope and assumptions}
 The prototype is designed for a 20 to 50 bed Indian hospital. A local HIS-style event records a delivered service, the billing API prices it from a payer rate card, and a running encounter collects charges. Staff can dispense a batch-tracked pharmacy item, add a room stay or package, collect an advance, issue one final invoice, record a simulated payer claim, and post actual receipts. The dashboard, receivables report, tax review and audit trail read the same PostgreSQL database.
 
-It demonstrates OPD, IPD, emergency and day-care encounter types; self-pay, private TPA, PM-JAY, CGHS and corporate payer routes. The private insurance and PM-JAY paths are local simulations. No insurer, scheme, HIS or GST portal credentials are used. The site has no login and must contain only invented records.
+It demonstrates OPD, IPD, emergency and day-care encounter types; self-pay, private TPA, PM-JAY, CGHS and corporate payer routes. The private insurance and PM-JAY paths are local simulations. No insurer, scheme, HIS or GST portal credentials are used. Three classroom logins give doctor, pharmacy and billing staff different actions. The password is \texttt{Demo@1234} for these invented accounts.
 
 \begin{tabular}{p{0.28\textwidth}p{0.65\textwidth}}
 \toprule
 Implemented for demo & HIS event capture, payer prices, room and package charges, pharmacy stock and GST snapshots, advances and refunds, invoice finalisation, claims, receipts, GSTR-1 review, receivables, analytics and audit.\\
 \midrule
-Outside demo & Live eligibility, official claim submission, certified ABDM/NHCX exchange, portal-ready GSTR-1 filing, authentication, production privacy controls and reviewed hospital tariffs.\\
+Outside demo & Live eligibility, official claim submission, certified ABDM/NHCX exchange, portal-ready GSTR-1 filing, production identity and privacy controls, and reviewed hospital tariffs.\\
 \bottomrule
 \end{tabular}
 
-The uploaded bill samples informed the kinds of charge lines to support. Only cropped, de-identified examples appear in the slides. The friend presentation influenced visual layout only.
+The uploaded bill samples informed the kinds of charge lines to support. Only cropped examples without patient identifiers appear in the slides. The friend presentation influenced visual layout only. The separate ER diagram file supplied by the student is included in the final presentation.
 
 \sect{2. Architecture and data flow}
 \begin{enumerate}
@@ -74,38 +74,7 @@ An eventual standards-based exchange could map encounters, charge items, invoice
 
 \newpage
 \sect{3. Chen ER design and PostgreSQL}
-In Chen notation, rectangles are entities, diamonds are relationships and ovals are attributes. Cardinalities are written next to relationship edges. The presentation includes rendered diagrams. Their editable Mermaid source and PNG outputs are \texttt{docs/core\_er.mmd}, \texttt{docs/payer\_er.mmd}, \texttt{docs/core\_er.png} and \texttt{docs/payer\_er.png} in the repository.
-
-\begin{center}
-\begin{tikzpicture}[
-  entity/.style={draw=teal,rectangle,fill=pale,minimum width=20mm,minimum height=9mm,font=\small},
-  relation/.style={draw=teal,diamond,fill=white,aspect=1.6,inner sep=1pt,font=\scriptsize},
-  attribute/.style={draw=muted,ellipse,fill=white,inner sep=2pt,font=\scriptsize},
-  edge/.style={draw=teal,line width=0.6pt}]
-\node[entity] (p) at (0,0) {Patient};
-\node[relation] (h) at (2.1,0) {HAS};
-\node[entity] (e) at (4.2,0) {Encounter};
-\node[relation] (r) at (6.35,0) {RECORDS};
-\node[entity] (c) at (8.55,0) {Charge};
-\node[relation] (b) at (10.7,0) {BILLED IN};
-\node[entity] (i) at (12.85,0) {Invoice};
-\node[attribute] (pa) at (0,-1.5) {patient\_id};
-\node[attribute] (ea) at (4.2,-1.5) {encounter\_id};
-\node[attribute] (ca) at (8.55,-1.5) {source\_event\_id};
-\node[attribute] (ia) at (12.85,-1.5) {invoice\_id};
-\draw[edge] (p)--node[above,font=\scriptsize]{1}(h);
-\draw[edge] (h)--node[above,font=\scriptsize]{N}(e);
-\draw[edge] (e)--node[above,font=\scriptsize]{1}(r);
-\draw[edge] (r)--node[above,font=\scriptsize]{N}(c);
-\draw[edge] (c)--node[above,font=\scriptsize]{N}(b);
-\draw[edge] (b)--node[above,font=\scriptsize]{1}(i);
-\draw[edge] (p)--(pa);
-\draw[edge] (e)--(ea);
-\draw[edge] (c)--(ca);
-\draw[edge] (i)--(ia);
-\end{tikzpicture}
-\end{center}
-\textit{Core excerpt.} The payer diagram adds Coverage, Preauth, Claim and Receipt. Read the full two-page diagrams for optional relationships and key attributes.
+In Chen notation, rectangles are entities, diamonds are relationships and ovals are attributes. The final presentation includes the complete conceptual diagram from the supplied ER file, followed by enlarged views of its HIS and billing sides. The conceptual model includes RIS and LIS entities beyond the current website. The executable PostgreSQL schema below describes the prototype as implemented.
 
 \begin{longtable}{p{0.27\textwidth}p{0.64\textwidth}}
 \toprule
@@ -122,7 +91,7 @@ Advances, receipts, refunds & Separate tables preserve collection and refund his
 Audit events & Writes create a timestamped action record for review.\\
 \bottomrule
 \end{longtable}
-The executable schema is \texttt{backend/app/schema.sql}. FastAPI applies it at startup and inserts synthetic seed records into an empty database. To redraw the ER diagrams, edit the Mermaid files, preserve rectangle/diamond/oval shapes and cardinality labels, render them with Mermaid CLI, then replace the corresponding PNGs in the slides.
+The executable schema is \texttt{backend/app/schema.sql}. FastAPI applies it at startup and inserts synthetic seed records into an empty database. The presentation uses the Chen diagram in the supplied \texttt{ER\_Diagram.pptx}, rather than the older draft ER sketches in the repository.
 
 \sect{4. Backend and API contract}
 The backend is \texttt{backend/app/main.py} using FastAPI, Pydantic and Psycopg. It exposes interactive schemas at \url{http://127.0.0.1:8000/docs}. Each write checks the encounter state and the relevant payer or stock rule before it commits. The complete route list and request meanings are in \texttt{docs/api\_contract.md}.
@@ -156,11 +125,11 @@ Resend the same payload to see \texttt{duplicate: true}. Keep the event ID fixed
 
 \newpage
 \sect{5. Frontend and pharmacy GST}
-The frontend is in \texttt{frontend/app}. Next.js renders a single dashboard with Overview, Encounters, Pharmacy, Claims, Tax review, Receivables, Reports, Catalog and Audit views. It calls the FastAPI routes through the same-origin \texttt{/api} rewrite. The page uses synthetic labels so it can be shown without exposing a hospital bill.
+The frontend is in \texttt{frontend/app}. Next.js shows a single patient workspace with three role choices: Doctor, Pharmacy and Billing desk. The Doctor saves a note, provisional ICD-10, service event and prescription. Pharmacy dispenses a matching order and sees the product tax and stock batch. Billing adds an IPD room stay, works through simulated payer steps and generates the itemised invoice on the same page. It calls FastAPI through the same-origin \texttt{/api} rewrite.
 
-The pharmacy flow selects an item and unexpired batch, checks quantity, posts the dispense and stores the tax rule used at that moment. The charge master keeps an item code, description, HSN/SAC review field, tax category, effective GST setting, and stock batch. The sample \texttt{MED-A} is an invented training item at Rs 100 per unit. Two units have a Rs 200 base, illustrative 5\% GST of Rs 10, and a Rs 210 total. This is not a claim that every medicine carries 5\% GST. An unclassified item is blocked from final invoicing until reviewed.
+The pharmacy flow selects an item and unexpired batch, checks quantity, posts the dispense and stores the tax rule used at that moment. The charge master keeps an item code, description, HSN/SAC review field, tax category, effective GST setting, and stock batch. The sample \texttt{MED-A} is an invented Rs 100 training medicine. In a separate OPD sale, two units have a Rs 200 base, 5\% GST of Rs 10 and a Rs 210 total. The nil example is a generic contraceptive product under HSN 3006, not a branded drug. When a medicine is part of qualifying inpatient treatment, the demo records it under the exempt healthcare supply instead. An unclassified item is blocked from final invoicing until reviewed.
 
-Qualified healthcare services are generally exempt under the applicable GST notification. The CBIC rate table also has a specific conditional 5\% entry for certain non-ICU rooms above Rs 5,000 per day. The supplied marketing article's blanket 18\% statement is not used. Actual medicine and device HSN classification must be reviewed item by item against the current schedule. The demo GSTR-1 packet has Tables 4, 7, 8, 12 and 13 for review; the official portal guide includes exempt supply reporting in Table 8 and separate B2B/B2C HSN summaries in Table 12. No government upload occurs.
+Qualified healthcare services are generally exempt under the applicable GST notification. The CBIC rate table also has a specific conditional 5\% entry for certain non-ICU rooms above Rs 5,000 per day. The supplied marketing article's blanket 18\% statement is not used. Actual medicine and device HSN classification must be reviewed item by item against the current schedule. The demo GSTR-1 packet has Tables 4, 7, 8, 12 and 13 for review; the official portal guide includes exempt supply reporting in Table 8. No government upload occurs.
 
 \sect{6. Run locally and test}
 \textbf{Fastest route with Docker Desktop.} From the repository root:
@@ -187,24 +156,21 @@ The frontend is at \url{http://127.0.0.1:3000}; API documentation is at \url{htt
 Check the native stack and restore the demo data:
 \begin{lstlisting}
 curl http://127.0.0.1:8000/api/health
-curl -X POST http://127.0.0.1:8000/api/demo/reset
 .\.venv\Scripts\python.exe -m pytest tests\test_api.py -q
 cd frontend
 npm run build
 \end{lstlisting}
-The database-backed tests cover OPD, TPA, PM-JAY, stock, room, package, payment, refund, tax review and receivables. The website was also exercised in a browser against the live local API and database. The demo reset endpoint must only be used with invented data.
+The database-backed tests cover OPD, TPA, PM-JAY, stock, room, package, payment, refund, tax review and receivables. The website was also exercised in a browser against the live local API and database. The billing desk has a Reset demo button to restore the invented cases; the action signs out every role.
 
 \sect{7. Live demonstration route}
 \begin{enumerate}
-\item Open Overview and show the live worklist and outstanding balance.
-\item In Encounters, create a synthetic encounter or select Demo Patient A. Add a HIS service event and inspect the running bill.
-\item In Pharmacy, dispense \texttt{MED-A} from an unexpired batch. Show quantity reduction, the separate taxable line, and its stored GST amount.
-\item Finalise a self-pay invoice and post a patient receipt.
-\item Open Demo Patient B. Record simulated TPA preauthorisation, finalise the IPD bill, submit a claim and record a payer decision. Show that approval alone leaves a balance, then post a payer receipt.
-\item Open Demo Patient C. Run the simulated PM-JAY check, preauthorisation and package claim. The demo blocks patient collection on that route.
-\item Open Tax review, Receivables, Reports and Audit. Download the review JSON only as a classroom example.
+\item Sign in as Doctor and select Ananya Rao. Review the invented history, save a note with provisional ICD-10, record a delivered service and create a prescription.
+\item Sign out and enter as Pharmacy. Choose the new order, dispense from an available batch and show the stock decrease and GST line on Ananya's running bill.
+\item Sign out and enter the Billing desk. Select Ananya and click Generate invoice. Review the itemised invoice in place, then record a sample UPI receipt.
+\item For the room example, select Rohan Iyer and add a one-day Rs 6,000 non-ICU private room stay. The illustrative tax is 5\% on that room charge.
+\item For a payer example, select Dev Mehta for simulated TPA preauthorisation and claim, or Farah Khan for simulated PM-JAY eligibility and package claim.
 \end{enumerate}
-Use Reset under Audit if another practice run has changed the original synthetic cases.
+Use Reset demo at the Billing desk if a practice run has changed the original synthetic cases. The three logins share the training password \texttt{Demo@1234}.
 
 \newpage
 \sect{8. Private AWS EC2 classroom deployment}
@@ -230,7 +196,7 @@ ssh -i KEY.pem -L 3000:127.0.0.1:3000 ubuntu@PUBLIC_IP
 \end{lstlisting}
 Keep the tunnel open, then visit \url{http://127.0.0.1:3000} on the laptop. The exact username and key permissions depend on the AMI and client. The Compose file binds all exposed ports to \texttt{127.0.0.1}, so the website is reachable through the tunnel rather than a public application port.
 
-The Compose password is a demo value. Do not place real patient information on this host. A real deployment requires authentication, roles, TLS, secret storage, encryption, backups, monitoring, retention rules, approved rates and authorised HIS/payer integrations.
+The Compose password is a demo value. Do not place real patient information on this host. A real deployment requires stronger authentication, roles, TLS, secret storage, encryption, backups, monitoring, retention rules, approved rates and authorised HIS/payer integrations.
 
 \sect{9. Future scope}
 For a larger hospital, add dedicated roles and approvals, multi-location configuration, deeper corporate credit rules, insurer-specific document templates, actual scheme and payer sandbox integrations, inventory procurement, stronger report reconciliation, performance testing, migration tooling and disaster recovery. Each integration should be validated against its current official contract and the hospital's policy.
@@ -239,7 +205,11 @@ For a larger hospital, add dedicated roles and approvals, multi-location configu
 Course lectures supplied with the assignment informed HIS, ER modelling, database, HL7, ICD/LOINC and ABDM context. The other group's presentation informed visual treatment only. The ERP Group article supplied by the user was used to identify possible workflows, not as authority for numeric claims or universal tax rates.
 
 \begin{enumerate}
+\item MoHFW Patients' Rights Charter: \url{https://clinicalestablishments.mohfw.gov.in/sites/default/files/2023-07/8431.pdf}
+\item GST Council 2025 medicines FAQ: \url{https://gstcouncil.gov.in/sites/default/files/2025-09/faq_0.pdf}
 \item CBIC goods and services rate table: \url{https://cbic-gst.gov.in/hindi/gst-goods-services-rates.html}
+\item GST Council service rates for the specified room entry: \url{https://www.gstcouncil.gov.in/sites/default/files/2024-02/gstservicerates.pdf}
+\item GST Council inpatient composite supply ruling: \url{https://gstcouncil.gov.in/sites/default/files/AAR/gst_ara_order_in_case_of_laxmi_health_care_center_iccu_order_2_11zon_compressed_1.pdf}
 \item GST portal GSTR-1 guide: \url{https://tutorial.gst.gov.in/userguide/returns/GSTR_1.htm}
 \item NHA PM-JAY operations manual: \url{https://nha.gov.in/img/resources/Operation%20Manual%20for%20AB%20PM-JAY.pdf}
 \item NHA Health Benefit Package manual: \url{https://nha.gov.in/img/resources/HBP-2.2-manual.pdf}
