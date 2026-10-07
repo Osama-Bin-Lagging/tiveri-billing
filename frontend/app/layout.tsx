@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./portal.css";
 
 export const metadata: Metadata = {
   title: "Tiveri Billing | Hospital billing demo",
-  description: "Synthetic small-hospital billing workflow with HIS events, claims, pharmacy and tax review.",
+  description: "Synthetic hospital billing workflow with clinical, coding, pharmacy and finance roles.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

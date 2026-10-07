@@ -1,10 +1,10 @@
 # Tiveri Billing
 
-A working DH 308 teaching prototype for a 20 to 50 bed Indian hospital. The website uses Next.js, the API uses FastAPI, and records persist in PostgreSQL. All patient labels, payer references, prices and clinical details are invented.
+A working DH 308 teaching prototype for an Indian hospital. The website uses Next.js, the API uses FastAPI, and records persist in PostgreSQL. All patient labels, payer references, prices and clinical details are invented.
 
-This prototype accepts HIS-style service events and builds a running bill. It supports OPD, IPD, emergency and day care encounters; payer rate cards; room stays; packages; batch-tracked pharmacy dispensing; effective-dated tax settings; advances and refunds; simulated TPA and PM-JAY workflows; claims and receipts; GSTR-1 review; receivables; reports; and an audit trail.
+The role-based demo connects admin and billing, doctor, medical coder, and pharmacy workspaces around one patient record. It includes history, care notes, provisional ICD-10 and invented CPT-style identifiers, coding review, prescriptions, batch-tracked dispensing, HIS-style service events, and a running bill. Billing also covers OPD, IPD, emergency and day care encounters; payer rates; room stays; packages; advances and refunds; simulated TPA and PM-JAY workflows; claims and receipts; GSTR-1 review; receivables; reports; and an audit trail.
 
-External HIS, insurer, PM-JAY, CGHS and GST portal actions are simulated. Do not enter real patient details or use the demo tax settings for real invoices. The app has no user authentication.
+External insurer, PM-JAY, CGHS and GST portal actions are simulated. Do not enter real patient details or use the demo tax settings for real invoices. The local demo accounts use a shared training password and are not suitable for a live hospital. CPT-DEMO-01 is an invented identifier, not an AMA CPT code or catalog entry.
 
 ## Fastest local start: Docker
 
@@ -14,7 +14,7 @@ Install Docker Desktop, then from the repository root:
 docker compose up --build
 ```
 
-Open http://127.0.0.1:3000. API documentation is at http://127.0.0.1:8000/docs. PostgreSQL is exposed only on localhost port 55433. The demo database seeds itself on first start. To restore the original invented cases, use the Reset button under Audit or call POST /api/demo/reset. Data persists in the Compose volume across restarts.
+Open http://127.0.0.1:3000. API documentation is at http://127.0.0.1:8000/docs. PostgreSQL is exposed only on localhost port 55433. The demo database seeds itself on first start. To restore the original invented cases, sign in as admin and use Reset under Audit. Reset ends all current sessions, so sign in again. Data persists in the Compose volume across restarts.
 
 ## Native local start
 
@@ -39,11 +39,20 @@ npm run dev
 
 Open http://127.0.0.1:3000. `frontend/next.config.ts` sends same-origin `/api/*` requests to the local FastAPI server. If the API uses a different address, set `API_INTERNAL_URL` before running or building Next.js.
 
-## What to show in the live demo
+## Demo sign-in and handoff
+
+At http://127.0.0.1:3000 choose **Admin / billing**, **Doctor**, **Medical coder**, or **Pharmacy**. The password for every classroom account is `Demo@1234`. The sidebar has **Sign out**. The admin can open the full billing desk from the patient workspace.
+
+1. As admin, open Rohan Iyer (E-IPD-08). Add a one-day private room stay. The running bill shows ₹6,000 plus 5% GST, subject to the specified non-ICU room condition.
+2. Sign out and enter as doctor. Open Ananya Rao (E-OPD-01). Review her invented history, save a note with a provisional ICD-10 code and invented CPT-style procedure identifier, mark a service delivered, and add a prescription.
+3. Sign out and enter as medical coder. Review the doctor's note and save an ICD-10 and procedure-code review. A payer claim uses the latest coder-reviewed code.
+4. Sign out and enter as pharmacy. Choose the prescription and dispense it. Stock falls and the item charge appears on the same patient bill. The catalog shows a 5% medicine, an illustrative nil-rated medicine category, and a 5% device example.
+5. Return as admin, open the full billing desk, and show the invoice, TPA or scheme workflow, tax review, and receivables.
+
+## Other billing screens
 
 - Overview: live worklist and balances.
-- Encounters: create a synthetic patient, capture a HIS event, and finalise an itemised invoice.
-- Pharmacy: dispense a training item from a tracked batch and see its charge and tax snapshot appear on the encounter.
+- Encounters: create a synthetic patient, review charges, and finalise an itemised invoice. Doctors record delivered service events from their workspace.
 - Claims: choose Demo Patient B for a simulated TPA preauthorisation, final invoice, claim decision and payer receipt. Approval alone does not reduce the balance.
 - PM-JAY: choose Demo Patient C, run the simulated beneficiary check, record simulated preauthorisation and finalise its package. Patient collection is blocked.
 - Tax review: Table 4, 7, 8, 12 and 13 review data for the selected month. Downloaded JSON is a review packet, not an upload-ready government return.
@@ -72,7 +81,7 @@ cd frontend
 npm run build
 ```
 
-The API tests reset the synthetic database and exercise OPD, TPA, PM-JAY, stock, room rent, packages, payment, refunds, tax review and receivables. A Playwright browser test was also run against the live local Next.js and FastAPI servers.
+The API tests reset the synthetic database and exercise role access, clinical notes, coding review, prescription-linked dispensing, nil and 5% tax examples, room rent, OPD, TPA, PM-JAY, packages, payment, refunds, tax review and receivables. The four role screens are also checked in a live browser against the local servers.
 
 ## Project layout
 
@@ -80,14 +89,14 @@ The API tests reset the synthetic database and exercise OPD, TPA, PM-JAY, stock,
 - `backend/app/main.py`: FastAPI endpoints and billing rules
 - `backend/app/schema.sql`: PostgreSQL schema
 - `tests/test_api.py`: database-backed API scenarios
-- `docs/core_er.mmd`, `docs/payer_er.mmd`: Chen-style Mermaid ER source used by the presentation
+- `docs/core_er.mmd`, `docs/payer_er.mmd`, `docs/clinical_er.mmd`: Chen-style Mermaid ER source used by the presentation
 - `docs/api_contract.md`: API summary
 - `docs/sources.md`: course and official research sources
 - `docs/DH308_Billing_Prototype_Guide.pdf`: illustrated local build and AWS classroom demo guide
 - `docs/DH308_Billing_Prototype_Guide.tex`: editable guide source
-- `presentation/DH308_HIS_Billing_Final.pptx`: final 24-slide deck without speaker notes
+- `presentation/DH308_HIS_Billing_Final.pptx`: final presentation deck without speaker notes
 - `docker-compose.yml`: local three-service stack
 
 ## Deployment boundary
 
-The Compose files can run on a private AWS EC2 instance for a classroom demonstration. Keep ports behind a VPN or security group that allows only the presentation team. A hospital deployment needs authentication and roles, TLS, secrets management, encryption, backups, monitoring, an approved data retention policy, real payer/HIS integration agreements, and reviewed tax/rate masters. The synthetic demo does not include these controls. Do not expose it publicly or store personal health information.
+The Compose files can run on a private AWS EC2 instance for a classroom demonstration. Keep ports behind a VPN or security group that allows only the presentation team. A hospital deployment needs strong identity management, TLS, secrets management, encryption, backups, monitoring, an approved data retention policy, real payer integration agreements, a licensed CPT catalog if required, and reviewed tax/rate masters. The classroom sign-in does not provide these production controls. Do not expose it publicly or store personal health information.

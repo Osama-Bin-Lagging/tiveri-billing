@@ -10,23 +10,33 @@ def call(client, method, path, body=None, expected=200):
     return result.json()
 
 
+def as_role(client, username):
+    login = call(client, "POST", "/api/auth/login", {"username": username, "password": "Demo@1234"})
+    client.headers.update({"Authorization": f"Bearer {login['token']}"})
+
+
 def test_small_hospital_workflows():
     with TestClient(app) as client:
+        as_role(client, "billing")
         call(client, "POST", "/api/demo/reset", {})
+        as_role(client, "billing")
         assert call(client, "GET", "/api/health")["database"] == "postgresql"
-        assert call(client, "GET", "/api/dashboard")["open_encounters"] == 5
+        assert call(client, "GET", "/api/dashboard")["open_encounters"] == 6
 
         # OPD: idempotent HIS capture, stock-linked pharmacy, advance and patient receipt.
         event = {"encounter_id": "E-OPD-01", "service_code": "XRAY", "quantity": 1, "source_event_id": "TEST-XRAY-1"}
+        as_role(client, "doctor")
         assert call(client, "POST", "/api/his/events", event)["duplicate"] is False
         assert call(client, "POST", "/api/his/events", event)["duplicate"] is True
         call(client, "POST", "/api/his/events", {**event, "quantity": 2}, 409)
         stock_before = next(i for i in call(client, "GET", "/api/pharmacy/stock")["items"] if i["item_code"] == "MED-A")["available_units"]
         rx = {"encounter_id": "E-OPD-01", "item_code": "MED-A", "quantity": 2,
-              "source_event_id": "TEST-RX-1", "prescription_ref": "RX-001"}
+              "source_event_id": "TEST-RX-1", "prescription_ref": "RX-DEMO-01"}
+        as_role(client, "pharmacy")
         assert call(client, "POST", "/api/pharmacy/dispense", rx)["duplicate"] is False
         assert call(client, "POST", "/api/pharmacy/dispense", rx)["duplicate"] is True
         assert next(i for i in call(client, "GET", "/api/pharmacy/stock")["items"] if i["item_code"] == "MED-A")["available_units"] == stock_before - 2
+        as_role(client, "billing")
         call(client, "POST", "/api/advances", {"encounter_id": "E-OPD-01", "amount_paise": 10000, "method": "UPI"})
         opd = call(client, "POST", "/api/invoices", {"encounter_id": "E-OPD-01"})
         assert opd["tax_paise"] == 1000  # two synthetic medicines, 5% demo tax
@@ -72,7 +82,9 @@ def test_small_hospital_workflows():
 
 def test_rates_rooms_packages_and_credit():
     with TestClient(app) as client:
+        as_role(client, "billing")
         call(client, "POST", "/api/demo/reset", {})
+        as_role(client, "billing")
         call(client, "POST", "/api/rates", {"service_code": "CONSULT", "payer_route": "PRIVATE", "payer_label": "Alpha TPA", "unit_paise": 42000})
         new = call(client, "POST", "/api/encounters", {"display_label": "Synthetic Patient X", "setting": "IPD", "payer_route": "SELF"})
         eid = new["encounter_id"]
@@ -89,8 +101,54 @@ def test_rates_rooms_packages_and_credit():
         call(client, "POST", "/api/refunds", {"encounter_id": eid, "amount_paise": 1, "method": "CARD"}, 400)
         day = call(client, "POST", "/api/encounters", {"display_label": "Synthetic Patient Y", "setting": "DAY_CARE", "payer_route": "SELF"})
         deid = day["encounter_id"]
+        as_role(client, "doctor")
         call(client, "POST", "/api/his/events", {"encounter_id": deid, "service_code": "CBC", "quantity": 1, "source_event_id": "TEST-DAY-CBC"})
+        as_role(client, "billing")
         call(client, "POST", "/api/packages/apply", {"encounter_id": deid, "package_code": "DAY-DEMO-01"})
         charges = call(client, "GET", f"/api/encounters/{deid}")["charges"]
         assert any(c["included_in_package"] and c["subtotal_paise"] == 0 for c in charges)
         assert call(client, "POST", "/api/invoices", {"encounter_id": deid})["total_paise"] == 600000
+
+
+def test_staff_handoffs_and_tax_examples():
+    with TestClient(app) as client:
+        as_role(client, "admin")
+        call(client, "POST", "/api/demo/reset", {})
+        as_role(client, "admin")
+        patient = call(client, "GET", "/api/encounters/E-OPD-01")
+        assert patient["patient"]["history_summary"]
+        assert patient["clinical_notes"][0]["provisional_icd_code"] == "R50.9"
+        assert "staff_users" not in call(client, "GET", "/api/bootstrap")
+        call(client, "POST", "/api/clinical/notes", {"encounter_id": "E-OPD-01", "note_text": "This action belongs to a doctor"}, 403)
+
+        as_role(client, "doctor")
+        call(client, "POST", "/api/clinical/notes", {"encounter_id": "E-OPD-01",
+            "note_text": "Fever reviewed and follow-up explained", "provisional_icd_code": "R50.9",
+            "procedure_code": "CPT-DEMO-01"})
+        rx = call(client, "POST", "/api/clinical/prescriptions", {"encounter_id": "E-OPD-01",
+            "item_code": "MED-N", "quantity": 1, "instruction": "Training example only"})
+
+        as_role(client, "coder")
+        review = call(client, "POST", "/api/coding/reviews", {"encounter_id": "E-OPD-01",
+            "diagnosis_code": "R50.9", "diagnosis_label": "Fever, unspecified",
+            "procedure_code": "CPT-DEMO-01", "review_note": "Reviewed for classroom flow"})
+        assert review["procedure_code"] == "CPT-DEMO-01"
+
+        as_role(client, "pharmacy")
+        disp = call(client, "POST", "/api/pharmacy/dispense", {"encounter_id": "E-OPD-01",
+            "item_code": "MED-N", "quantity": 1, "prescription_ref": rx["prescription_ref"],
+            "source_event_id": "TEST-NIL-MED"})
+        assert disp["charge"]["tax_category"] == "NIL"
+        assert disp["charge"]["tax_rate_bps"] == 0
+        call(client, "POST", "/api/pharmacy/dispense", {"encounter_id": "E-OPD-01",
+            "item_code": "MED-N", "quantity": 1, "prescription_ref": rx["prescription_ref"],
+            "source_event_id": "TEST-NIL-OVER"}, 400)
+
+        as_role(client, "admin")
+        nil_invoice = call(client, "POST", "/api/invoices", {"encounter_id": "E-OPD-01"})
+        nil_period = nil_invoice["issued_at"][:7]
+        tax_review = call(client, "GET", f"/api/gstr1?month={nil_period}")
+        assert any(group["category"] == "NIL" for group in tax_review["tables"]["table8"])
+        room = call(client, "POST", "/api/encounters/E-IPD-08/room-stays", {"room_code": "PRIVATE_ROOM",
+            "start_date": "2026-10-07", "end_date": "2026-10-08"})
+        assert room["charges"][0]["tax_rate_bps"] == 500

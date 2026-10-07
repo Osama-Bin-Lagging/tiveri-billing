@@ -3,6 +3,29 @@ CREATE TABLE IF NOT EXISTS patients (
   display_label TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS age_years INTEGER;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS sex TEXT NOT NULL DEFAULT '';
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS blood_group TEXT NOT NULL DEFAULT '';
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS contact_masked TEXT NOT NULL DEFAULT '';
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS city TEXT NOT NULL DEFAULT '';
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS allergies TEXT NOT NULL DEFAULT '';
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS history_summary TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS staff_users (
+  username TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('ADMIN','DOCTOR','CODER','PHARMACY','BILLING')),
+  password_salt TEXT NOT NULL,
+  password_hash TEXT NOT NULL
+);
+ALTER TABLE staff_users DROP CONSTRAINT IF EXISTS staff_users_role_check;
+ALTER TABLE staff_users ADD CONSTRAINT staff_users_role_check CHECK (role IN ('ADMIN','DOCTOR','CODER','PHARMACY','BILLING'));
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  token_hash TEXT PRIMARY KEY,
+  username TEXT NOT NULL REFERENCES staff_users(username),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS encounters (
   encounter_id TEXT PRIMARY KEY,
@@ -16,6 +39,39 @@ CREATE TABLE IF NOT EXISTS encounters (
   opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   discharged_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS clinical_notes (
+  note_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  author_username TEXT NOT NULL REFERENCES staff_users(username),
+  note_type TEXT NOT NULL DEFAULT 'PROGRESS',
+  note_text TEXT NOT NULL,
+  provisional_icd_code TEXT NOT NULL DEFAULT '',
+  procedure_code TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE clinical_notes ADD COLUMN IF NOT EXISTS provisional_icd_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE clinical_notes ADD COLUMN IF NOT EXISTS procedure_code TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS prescriptions (
+  prescription_ref TEXT PRIMARY KEY,
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  item_code TEXT NOT NULL,
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  instruction TEXT NOT NULL DEFAULT '',
+  author_username TEXT NOT NULL REFERENCES staff_users(username),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS coding_reviews (
+  review_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  diagnosis_code TEXT NOT NULL,
+  diagnosis_label TEXT NOT NULL,
+  procedure_code TEXT NOT NULL DEFAULT '',
+  review_note TEXT NOT NULL DEFAULT '',
+  author_username TEXT NOT NULL REFERENCES staff_users(username),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE coding_reviews ADD COLUMN IF NOT EXISTS procedure_code TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS coverages (
   coverage_id TEXT PRIMARY KEY,
@@ -174,12 +230,14 @@ CREATE TABLE IF NOT EXISTS claims (
   submitted_paise BIGINT NOT NULL CHECK (submitted_paise > 0),
   approved_paise BIGINT NOT NULL DEFAULT 0 CHECK (approved_paise >= 0),
   diagnosis_code TEXT NOT NULL DEFAULT '',
+  procedure_code TEXT NOT NULL DEFAULT '',
   discharge_summary TEXT NOT NULL DEFAULT '',
   documents JSONB NOT NULL DEFAULT '{}'::jsonb,
   reference_no TEXT NOT NULL DEFAULT '',
   submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   decided_at TIMESTAMPTZ
 );
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS procedure_code TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS advances (
   advance_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -223,3 +281,6 @@ CREATE INDEX IF NOT EXISTS idx_invoices_issued ON invoices(issued_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_invoice ON receipts(invoice_id);
 CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notes_encounter ON clinical_notes(encounter_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rx_encounter ON prescriptions(encounter_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_coding_encounter ON coding_reviews(encounter_id,created_at DESC);

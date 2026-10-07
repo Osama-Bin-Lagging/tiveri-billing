@@ -10,6 +10,7 @@ test-results/
 .venv/
 .pytest_cache/
 .next/
+*.tsbuildinfo
 frontend/out/
 .env
 .env.local

@@ -8,7 +8,10 @@ The ERP Group article provided with the assignment informed the list of workflow
 - [CGHS approved rates](https://dgehs.delhi.gov.in/dghs/cghs-approved-rates-treatment-and-investigative-procedures): reference list for a scheme-specific rate card.
 - [NRCeS ABDM FHIR R4 guide](https://www.nrces.in/ndhm/fhir/r4/): India health record and insurance exchange profiles, including Claim and ClaimResponse bundles.
 - [CBIC goods and services rates](https://cbic-gst.gov.in/hindi/gst-goods-services-rates.html): healthcare service and specified room service entries. The supplied marketing article's blanket 18% rate for non-ICU rooms above Rs 5,000/day conflicts with the current official rate table's 5% entry subject to conditions.
+- [GST Council / PIB 2025 medicine FAQ](https://gstcouncil.gov.in/sites/default/files/2025-09/faq_0.pdf): drugs and medicines are generally 5% except specified nil-rated medicines; medical devices are generally 5% except specifically exempted items. The demo's nil item is a training category, not a named real medicine.
 - [GST portal GSTR-1 guide](https://tutorial.gst.gov.in/userguide/returns/GSTR_1.htm): includes Table 8 for nil-rated, exempt and non-GST outward supplies. The supplied article's claim that exempt supplies are not reported in GSTR-1 is therefore not used.
+- [WHO ICD classification](https://www.who.int/classifications/classification-of-diseases): ICD-10 classification context for diagnosis recording and coder review.
+- [AMA CPT licensing FAQ](https://www.ama-assn.org/practice-management/cpt/cpt-licensing-frequently-asked-questions-faqs): CPT is an AMA code set. The prototype stores an invented CPT-style identifier only and does not contain or claim an official CPT catalog.
 - DH 308 lecture slides supplied with the assignment: ER modelling, database concepts, HIS, HL7, ICD/LOINC and ABDM context.
 
 The friend group's presentation is used for visual direction only. Its LIS content and diagrams are not used as billing research.

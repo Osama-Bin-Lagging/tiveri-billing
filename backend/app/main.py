@@ -9,11 +9,15 @@ from typing import Any
 from uuid import uuid4
 import os
 import re
+import hashlib
+import hmac
+import secrets
 
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 
@@ -22,7 +26,8 @@ DEMO_MODE = os.getenv("DEMO_MODE", "1") == "1"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 ROUTES = {"SELF", "PRIVATE", "PMJAY", "CGHS", "CORPORATE"}
 SETTINGS = {"OPD", "IPD", "EMERGENCY", "DAY_CARE"}
-TABLES = ("patients", "encounters", "coverages", "tax_rules", "services", "payer_rates", "pharmacy_items", "stock_batches", "package_catalog", "room_stays", "charges", "dispenses", "preauths", "invoices", "invoice_lines", "claims", "advances", "receipts", "refunds", "audit_events")
+PUBLIC_TABLES = ("patients", "encounters", "coverages", "tax_rules", "services", "payer_rates", "pharmacy_items", "stock_batches", "package_catalog", "room_stays", "charges", "dispenses", "preauths", "invoices", "invoice_lines", "claims", "advances", "receipts", "refunds", "audit_events")
+TABLES = PUBLIC_TABLES + ("staff_users", "auth_sessions", "clinical_notes", "prescriptions", "coding_reviews")
 
 
 def db() -> psycopg.Connection:
@@ -47,6 +52,23 @@ def need(value: Any, message: str, status: int = 400) -> Any:
 def audit(conn: psycopg.Connection, action: str, entity: str, entity_id: Any, details: dict | None = None) -> None:
     conn.execute("INSERT INTO audit_events(action,entity,entity_id,details) VALUES (%s,%s,%s,%s)",
                  (action, entity, str(entity_id), Jsonb(details or {})))
+
+
+def password_digest(password: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 200_000).hex()
+
+
+def seed_staff(conn: psycopg.Connection) -> None:
+    for username, display_name, role in [
+        ("admin", "Riya Menon", "ADMIN"),
+        ("doctor", "Dr Mira Sen", "DOCTOR"),
+        ("coder", "Aarav Nair", "CODER"),
+        ("pharmacy", "Nisha Shah", "PHARMACY"),
+        ("billing", "Riya Menon", "BILLING"),
+    ]:
+        salt = secrets.token_hex(16)
+        conn.execute("""INSERT INTO staff_users(username,display_name,role,password_salt,password_hash)
+            VALUES (%s,%s,%s,%s,%s) ON CONFLICT (username) DO NOTHING""", (username, display_name, role, salt, password_digest("Demo@1234", salt)))
 
 
 def tax_for(conn: psycopg.Connection, rule_code: str, on_date: date | None = None) -> dict:
@@ -129,7 +151,8 @@ def seed_demo(conn: psycopg.Connection) -> None:
         ("CARE_EXEMPT", "EXEMPT", 0, "9993", "Healthcare exemption requires qualification review"),
         ("ROOM_5_DEMO", "TAXABLE", 500, "9993", "Demo: specified non-ICU room above Rs 5,000/day, subject to CBIC conditions"),
         ("MED_5_DEMO", "TAXABLE", 500, "3004", "Synthetic medicine tax setting; verify actual HSN and rate"),
-        ("DEVICE_12_DEMO", "TAXABLE", 1200, "9018", "Synthetic device tax setting; verify actual HSN and rate"),
+        ("MED_NIL_DEMO", "NIL", 0, "3004", "Illustrative member of the specified nil-rated medicine category; not a real product classification"),
+        ("DEVICE_5_DEMO", "TAXABLE", 500, "9018", "Synthetic medical device; verify actual HSN and rate"),
         ("REVIEW_REQUIRED", "REVIEW", 0, "", "Finance must classify this item before invoicing"),
     ]
     conn.cursor().executemany("""INSERT INTO tax_rules(rule_code,effective_from,tax_category,rate_bps,hsn_sac,note)
@@ -141,8 +164,9 @@ def seed_demo(conn: psycopg.Connection) -> None:
         ("PROC", "Procedure example", "PROCEDURE", "PROCEDURE", 850000, "CARE_EXEMPT"),
         ("WARD", "General ward, one day", "ROOM", "ROOM", 230000, "CARE_EXEMPT"),
         ("PRIVATE_ROOM", "Private room, one day", "ROOM", "ROOM", 600000, "ROOM_5_DEMO"),
-        ("MED_A", "Training medicine A", "PHARMACY", "PHARMACY", 10000, "MED_5_DEMO"),
-        ("DEVICE_B", "Training device B", "PHARMACY", "DEVICE", 250000, "DEVICE_12_DEMO"),
+        ("MED_A", "Paracetamol 500 mg, training SKU", "PHARMACY", "PHARMACY", 10000, "MED_5_DEMO"),
+        ("MED_N", "Specified nil-rate medicine, training SKU", "PHARMACY", "PHARMACY", 180000, "MED_NIL_DEMO"),
+        ("DEVICE_B", "Medical device, training SKU", "PHARMACY", "DEVICE", 250000, "DEVICE_5_DEMO"),
         ("PMJAY_PKG", "PM-JAY training package", "PACKAGE", "PACKAGE", 1200000, "CARE_EXEMPT"),
         ("DAY_PKG", "Day-care procedure package", "PACKAGE", "PACKAGE", 600000, "CARE_EXEMPT"),
         ("MAT_PKG", "Maternity package example", "PACKAGE", "PACKAGE", 2200000, "CARE_EXEMPT"),
@@ -160,13 +184,15 @@ def seed_demo(conn: psycopg.Connection) -> None:
     conn.cursor().executemany("INSERT INTO payer_rates(service_code,payer_route,payer_label,unit_paise) VALUES (%s,%s,%s,%s)", rates)
     conn.cursor().executemany("""INSERT INTO pharmacy_items(item_code,service_code,display_name,requires_prescription,controlled_stock)
         VALUES (%s,%s,%s,%s,%s)""", [
-            ("MED-A", "MED_A", "Training medicine A", True, False),
-            ("DEVICE-B", "DEVICE_B", "Training device B", False, False),
+            ("MED-A", "MED_A", "Paracetamol 500 mg, training SKU", True, False),
+            ("MED-N", "MED_N", "Specified nil-rate medicine, training SKU", True, False),
+            ("DEVICE-B", "DEVICE_B", "Medical device, training SKU", False, False),
         ])
     conn.cursor().executemany("""INSERT INTO stock_batches(item_code,batch_no,expiry_date,quantity_available)
         VALUES (%s,%s,%s,%s)""", [
             ("MED-A", "DEMO-MA-01", date.today() + timedelta(days=365), 120),
             ("MED-A", "DEMO-MA-02", date.today() + timedelta(days=540), 80),
+            ("MED-N", "DEMO-MN-01", date.today() + timedelta(days=365), 24),
             ("DEVICE-B", "DEMO-DB-01", date.today() + timedelta(days=730), 35),
         ])
     conn.cursor().executemany("""INSERT INTO package_catalog(package_code,service_code,payer_route,included_departments,preauth_required,note)
@@ -176,22 +202,50 @@ def seed_demo(conn: psycopg.Connection) -> None:
             ("MAT-DEMO-01", "MAT_PKG", "SELF", ["ROOM", "PROCEDURE", "LAB"], False, "Invented maternity package"),
         ])
     cases = [
-        ("P-DEMO-01", "Demo Patient A", "E-OPD-01", "OPD", "SELF", "Self pay"),
-        ("P-DEMO-02", "Demo Patient B", "E-IPD-02", "IPD", "PRIVATE", "Alpha TPA"),
-        ("P-DEMO-03", "Demo Patient C", "E-IPD-03", "IPD", "PMJAY", "PM-JAY demo"),
-        ("P-DEMO-04", "Demo Patient D", "E-OPD-04", "OPD", "CGHS", "CGHS demo"),
-        ("P-DEMO-05", "Demo Patient E", "E-OPD-05", "OPD", "CORPORATE", "Demo employer"),
-        ("P-DEMO-06", "Demo Patient F", "E-OLD-06", "OPD", "SELF", "Self pay"),
-        ("P-DEMO-07", "Demo Patient G", "E-OLD-07", "IPD", "PRIVATE", "Bharat TPA"),
+        ("P-DEMO-01", "Ananya Rao", "E-OPD-01", "OPD", "SELF", "Self pay"),
+        ("P-DEMO-02", "Dev Mehta", "E-IPD-02", "IPD", "PRIVATE", "Alpha TPA"),
+        ("P-DEMO-03", "Farah Khan", "E-IPD-03", "IPD", "PMJAY", "PM-JAY demo"),
+        ("P-DEMO-04", "Kiran Das", "E-OPD-04", "OPD", "CGHS", "CGHS demo"),
+        ("P-DEMO-05", "Leela Nair", "E-OPD-05", "OPD", "CORPORATE", "Demo employer"),
+        ("P-DEMO-06", "Manoj Shah", "E-OLD-06", "OPD", "SELF", "Self pay"),
+        ("P-DEMO-07", "Nadia Roy", "E-OLD-07", "IPD", "PRIVATE", "Bharat TPA"),
+        ("P-DEMO-08", "Rohan Iyer", "E-IPD-08", "IPD", "SELF", "Self pay"),
     ]
-    for pid, label, eid, setting, route, payer in cases:
-        conn.execute("INSERT INTO patients(patient_id,display_label) VALUES (%s,%s)", (pid, label))
+    seed_staff(conn)
+    profiles = [
+        (28, "Female", "B+", "9XXXXX1201", "Bengaluru", "No known drug allergies", "Intermittent fever for three days; prior OPD consultation in 2025."),
+        (46, "Male", "O+", "9XXXXX1202", "Mysuru", "Penicillin listed", "Type 2 diabetes; admitted for planned procedure. Previous admission in 2024."),
+        (37, "Female", "A+", "9XXXXX1203", "Bengaluru", "No known drug allergies", "Recent abdominal pain; scheme eligibility and package are simulated."),
+        (62, "Male", "AB+", "9XXXXX1204", "Hubballi", "Sulfa listed", "Hypertension, on long-term follow-up."),
+        (33, "Female", "O-", "9XXXXX1205", "Bengaluru", "No known drug allergies", "Routine corporate wellness visit; no admission history."),
+        (51, "Male", "B-", "9XXXXX1206", "Tumakuru", "No known drug allergies", "Past OPD consultation, now fully settled."),
+        (43, "Female", "A-", "9XXXXX1207", "Mysuru", "No known drug allergies", "Prior inpatient procedure with insurer balance pending."),
+        (39, "Male", "O+", "9XXXXX1208", "Bengaluru", "No known drug allergies", "Admitted for observation. Room choice remains open for the live billing demonstration."),
+    ]
+    for (pid, label, eid, setting, route, payer), profile in zip(cases, profiles):
+        conn.execute("""INSERT INTO patients(patient_id,display_label,age_years,sex,blood_group,contact_masked,city,allergies,history_summary)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (pid, label, *profile))
         conn.execute("""INSERT INTO encounters(encounter_id,patient_id,setting,payer_route,payer_label,bill_to_gstin)
             VALUES (%s,%s,%s,%s,%s,%s)""", (eid, pid, setting, route, payer,
                                               "29ABCDE1234F1Z5" if route == "CORPORATE" else ""))
         conn.execute("""INSERT INTO coverages(coverage_id,encounter_id,payer_route,payer_label,member_ref,preauth_required)
             VALUES (%s,%s,%s,%s,%s,%s)""", (f"C-{pid}", eid, route, payer,
                                             f"SYN-{pid}", route in {"PRIVATE", "PMJAY"} and setting == "IPD"))
+    for eid, note_text in [
+        ("E-OPD-01", "Fever and fatigue for three days. CBC requested. Review hydration and temperature."),
+        ("E-IPD-02", "Admitted for planned procedure. Review medication allergy before any dispensing."),
+        ("E-IPD-03", "Abdominal pain assessment completed. Package pathway used for classroom simulation."),
+        ("E-IPD-08", "Observation admission. Stable on assessment; room category to be confirmed."),
+    ]:
+        conn.execute("""INSERT INTO clinical_notes(encounter_id,author_username,note_text,provisional_icd_code,procedure_code)
+            VALUES (%s,'doctor',%s,%s,%s)""", (eid, note_text, "R50.9" if eid == "E-OPD-01" else "Z00.0",
+            "CPT-DEMO-01" if eid == "E-OPD-01" else ""))
+    conn.execute("""INSERT INTO prescriptions(prescription_ref,encounter_id,item_code,quantity,instruction,author_username)
+        VALUES ('RX-DEMO-01','E-OPD-01','MED-A',4,'After food, as directed','doctor'),
+               ('RX-DEMO-02','E-OPD-01','MED-N',1,'Training example only','doctor')""")
+    conn.execute("""INSERT INTO coding_reviews(encounter_id,diagnosis_code,diagnosis_label,review_note,author_username)
+        VALUES ('E-IPD-02','Z00.0','General medical examination','Synthetic classroom coding example','coder'),
+               ('E-IPD-03','Z00.0','General medical examination','Synthetic classroom coding example','coder')""")
     for eid, code, qty, source in [
         ("E-OPD-01", "CONSULT", 1, "SEED-OPD-CONSULT"),
         ("E-OPD-01", "CBC", 1, "SEED-OPD-CBC"),
@@ -232,6 +286,7 @@ def initialise() -> None:
         conn.execute(SCHEMA_PATH.read_text(encoding="utf-8"))
         if one(conn, "SELECT count(*) AS n FROM patients")["n"] == 0:
             seed_demo(conn)
+        seed_staff(conn)
 
 
 @asynccontextmanager
@@ -241,6 +296,129 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Tiveri Billing Demo API", version="2.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def demo_auth(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or path in {"/api/health", "/api/auth/login"}:
+        return await call_next(request)
+    authorization = request.headers.get("authorization", "")
+    token = authorization[7:] if authorization.lower().startswith("bearer ") else ""
+    if not token:
+        return JSONResponse({"detail": "Sign in to continue"}, status_code=401)
+    with db() as conn:
+        user = one(conn, """SELECT u.username,u.display_name,u.role FROM auth_sessions s
+            JOIN staff_users u USING(username) WHERE s.token_hash=%s AND s.expires_at>now()""",
+            (hashlib.sha256(token.encode()).hexdigest(),))
+    if not user:
+        return JSONResponse({"detail": "Session expired. Sign in again"}, status_code=401)
+    request.state.user = user
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and path != "/api/auth/logout":
+        required = "BILLING"
+        if path.startswith("/api/clinical/") or path == "/api/his/events":
+            required = "DOCTOR"
+        elif path.startswith("/api/coding/"):
+            required = "CODER"
+        elif path == "/api/pharmacy/dispense":
+            required = "PHARMACY"
+        if user["role"] != required and not (required == "BILLING" and user["role"] == "ADMIN"):
+            return JSONResponse({"detail": f"{required.title()} role required for this action"}, status_code=403)
+    return await call_next(request)
+
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class ClinicalNoteIn(BaseModel):
+    encounter_id: str
+    note_text: str = Field(min_length=10, max_length=2000)
+    provisional_icd_code: str = Field(default="", max_length=12)
+    procedure_code: str = Field(default="", max_length=24)
+
+
+class PrescriptionIn(BaseModel):
+    encounter_id: str
+    item_code: str
+    quantity: int = Field(ge=1, le=100)
+    instruction: str = Field(default="", max_length=300)
+
+
+class CodingReviewIn(BaseModel):
+    encounter_id: str
+    diagnosis_code: str
+    diagnosis_label: str = Field(min_length=3, max_length=160)
+    procedure_code: str = Field(default="", max_length=24)
+    review_note: str = Field(default="", max_length=500)
+
+
+@app.post("/api/auth/login")
+def login(data: LoginIn):
+    with db() as conn:
+        user = one(conn, "SELECT * FROM staff_users WHERE username=%s", (data.username.lower().strip(),))
+        if not user or not hmac.compare_digest(password_digest(data.password, user["password_salt"]), user["password_hash"]):
+            raise HTTPException(401, "Incorrect demo sign-in")
+        token = secrets.token_urlsafe(32)
+        conn.execute("INSERT INTO auth_sessions(token_hash,username,expires_at) VALUES (%s,%s,%s)",
+                     (hashlib.sha256(token.encode()).hexdigest(), user["username"], datetime.now(timezone.utc) + timedelta(hours=12)))
+        return {"token": token, "user": {key: user[key] for key in ("username", "display_name", "role")}}
+
+
+@app.get("/api/auth/me")
+def me(request: Request):
+    return request.state.user
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    token = request.headers.get("authorization", "")[7:]
+    with db() as conn:
+        conn.execute("DELETE FROM auth_sessions WHERE token_hash=%s", (hashlib.sha256(token.encode()).hexdigest(),))
+    return {"ok": True}
+
+
+@app.post("/api/clinical/notes")
+def add_clinical_note(data: ClinicalNoteIn, request: Request):
+    with db() as conn:
+        enc = encounter_for(conn, data.encounter_id)
+        need(enc["status"] == "OPEN", "Encounter is closed")
+        if data.provisional_icd_code:
+            need(re.fullmatch(r"[A-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?", data.provisional_icd_code.upper()), "Enter an ICD-style diagnosis code")
+        record = one(conn, """INSERT INTO clinical_notes(encounter_id,author_username,note_text,provisional_icd_code,procedure_code)
+            VALUES (%s,%s,%s,%s,%s) RETURNING *""", (data.encounter_id, request.state.user["username"],
+            data.note_text.strip(), data.provisional_icd_code.upper().strip(), data.procedure_code.strip()))
+        audit(conn, "CLINICAL_NOTE_ADDED", "note", record["note_id"])
+        return record
+
+
+@app.post("/api/clinical/prescriptions")
+def add_prescription(data: PrescriptionIn, request: Request):
+    with db() as conn:
+        enc = encounter_for(conn, data.encounter_id)
+        need(enc["status"] == "OPEN", "Encounter is closed")
+        need(one(conn, "SELECT 1 FROM pharmacy_items WHERE item_code=%s", (data.item_code,)), "Medicine not found", 404)
+        ref = "RX-" + uuid4().hex[:10].upper()
+        record = one(conn, """INSERT INTO prescriptions(prescription_ref,encounter_id,item_code,quantity,instruction,author_username)
+            VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""", (ref, data.encounter_id, data.item_code,
+            data.quantity, data.instruction.strip(), request.state.user["username"]))
+        audit(conn, "PRESCRIPTION_ADDED", "prescription", ref)
+        return record
+
+
+@app.post("/api/coding/reviews")
+def add_coding_review(data: CodingReviewIn, request: Request):
+    code = data.diagnosis_code.upper().strip()
+    need(re.fullmatch(r"[A-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?", code), "Enter an ICD-style code")
+    with db() as conn:
+        encounter_for(conn, data.encounter_id)
+        need(one(conn, "SELECT 1 FROM clinical_notes WHERE encounter_id=%s", (data.encounter_id,)), "Doctor note required first")
+        record = one(conn, """INSERT INTO coding_reviews(encounter_id,diagnosis_code,diagnosis_label,procedure_code,review_note,author_username)
+            VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""", (data.encounter_id, code, data.diagnosis_label.strip(),
+            data.procedure_code.strip(), data.review_note.strip(), request.state.user["username"]))
+        audit(conn, "CODING_REVIEW_ADDED", "review", record["review_id"])
+        return record
 
 
 class EncounterIn(BaseModel):
@@ -343,7 +521,7 @@ def health():
 @app.get("/api/bootstrap")
 def bootstrap():
     with db() as conn:
-        result = {table: rows(conn, f"SELECT * FROM {table} ORDER BY 1") for table in TABLES}
+        result = {table: rows(conn, f"SELECT * FROM {table} ORDER BY 1") for table in PUBLIC_TABLES}
     result["demo_notice"] = "Synthetic teaching cases only. External HIS, payer and GST portal actions are simulated."
     return result
 
@@ -387,6 +565,11 @@ def encounter_detail(encounter_id: str):
                 "charges": charges,
                 "room_stays": rows(conn, "SELECT * FROM room_stays WHERE encounter_id=%s ORDER BY room_stay_id", (encounter_id,)),
                 "dispenses": rows(conn, "SELECT * FROM dispenses WHERE encounter_id=%s ORDER BY dispense_id", (encounter_id,)),
+                "clinical_notes": rows(conn, "SELECT * FROM clinical_notes WHERE encounter_id=%s ORDER BY created_at DESC,note_id DESC", (encounter_id,)),
+                "prescriptions": rows(conn, """SELECT p.*,COALESCE((SELECT sum(d.quantity) FROM dispenses d
+                    WHERE d.prescription_ref=p.prescription_ref),0) AS dispensed_quantity FROM prescriptions p
+                    WHERE encounter_id=%s ORDER BY created_at DESC""", (encounter_id,)),
+                "coding_reviews": rows(conn, "SELECT * FROM coding_reviews WHERE encounter_id=%s ORDER BY created_at DESC,review_id DESC", (encounter_id,)),
                 "preauths": rows(conn, "SELECT * FROM preauths WHERE encounter_id=%s ORDER BY preauth_id", (encounter_id,)),
                 "invoice": inv,
                 "invoice_lines": rows(conn, "SELECT * FROM invoice_lines WHERE invoice_id=%s ORDER BY invoice_line_id", (inv["invoice_id"],)) if inv else [],
@@ -395,6 +578,15 @@ def encounter_detail(encounter_id: str):
                 "receipts": rows(conn, "SELECT * FROM receipts WHERE invoice_id=%s ORDER BY receipt_id", (inv["invoice_id"],)) if inv else [],
                 "refunds": rows(conn, "SELECT * FROM refunds WHERE encounter_id=%s ORDER BY refund_id", (encounter_id,)),
                 "running_total_paise": preview, **balance}
+
+
+@app.get("/api/clinical/queue")
+def clinical_queue():
+    with db() as conn:
+        return {"prescriptions": rows(conn, """SELECT p.*,pt.display_label AS patient_label,e.setting,
+            COALESCE((SELECT sum(d.quantity) FROM dispenses d WHERE d.prescription_ref=p.prescription_ref),0)
+            AS dispensed_quantity FROM prescriptions p JOIN encounters e USING(encounter_id)
+            JOIN patients pt USING(patient_id) ORDER BY p.created_at DESC""")}
 
 
 def apply_package_core(conn: psycopg.Connection, encounter_id: str, package_code: str) -> dict:
@@ -507,7 +699,7 @@ def pharmacy_stock():
     with db() as conn:
         items = rows(conn, """SELECT p.item_code,p.display_name AS description,p.requires_prescription,
             p.controlled_stock,s.base_unit_paise AS unit_price_paise,s.tax_rule_code,
-            t.hsn_sac AS hsn_code FROM pharmacy_items p JOIN services s USING(service_code)
+            t.hsn_sac AS hsn_code,t.tax_category,t.rate_bps AS tax_rate_bps FROM pharmacy_items p JOIN services s USING(service_code)
             JOIN tax_rules t ON t.rule_code=s.tax_rule_code ORDER BY p.item_code""")
         for item in items:
             item["batches"] = rows(conn, "SELECT * FROM stock_batches WHERE item_code=%s ORDER BY expiry_date", (item["item_code"],))
@@ -528,6 +720,14 @@ def dispense(data: DispenseIn):
         item = need(one(conn, "SELECT * FROM pharmacy_items WHERE item_code=%s", (data.item_code,)), "Item not found", 404)
         need(not item["controlled_stock"], "Controlled medicine needs a separate register and is unavailable in this demo")
         need(not item["requires_prescription"] or data.prescription_ref.strip(), "Prescription reference required")
+        if item["requires_prescription"]:
+            rx = need(one(conn, "SELECT * FROM prescriptions WHERE prescription_ref=%s FOR UPDATE",
+                          (data.prescription_ref.strip(),)), "Doctor prescription not found", 404)
+            need((rx["encounter_id"], rx["item_code"]) == (data.encounter_id, data.item_code),
+                 "Prescription does not match this patient and item")
+            dispensed = one(conn, "SELECT COALESCE(sum(quantity),0) AS n FROM dispenses WHERE prescription_ref=%s",
+                            (data.prescription_ref.strip(),))["n"]
+            need(dispensed + data.quantity <= rx["quantity"], "Quantity exceeds doctor prescription")
         batch = need(one(conn, """SELECT * FROM stock_batches WHERE item_code=%s AND expiry_date>%s
             AND quantity_available>=%s ORDER BY expiry_date,batch_id LIMIT 1 FOR UPDATE""",
             (data.item_code, date.today(), data.quantity)), "No unexpired batch has sufficient stock")
@@ -615,6 +815,8 @@ def submit_claim(data: ClaimIn):
         need(re.fullmatch(r"[A-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?", data.diagnosis_code.upper()), "Enter a valid ICD-style diagnosis code")
         need(len(data.discharge_summary.strip()) >= 10, "Discharge summary required")
         need(data.documents.get("itemised_bill") and data.documents.get("discharge_summary"), "Itemised bill and discharge summary are required")
+        review = need(one(conn, """SELECT * FROM coding_reviews WHERE encounter_id=%s
+            ORDER BY created_at DESC,review_id DESC LIMIT 1""", (enc["encounter_id"],)), "Medical coder review required")
         cov = one(conn, "SELECT * FROM coverages WHERE encounter_id=%s", (enc["encounter_id"],))
         pre = latest_approved_preauth(conn, enc["encounter_id"])
         if cov["preauth_required"]:
@@ -622,9 +824,9 @@ def submit_claim(data: ClaimIn):
         submitted = invoice["total_paise"] - invoice["advance_allocated_paise"]
         need(submitted > 0, "Nothing remains to claim")
         record = one(conn, """INSERT INTO claims(invoice_id,coverage_id,preauth_id,submitted_paise,
-            diagnosis_code,discharge_summary,documents) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+            diagnosis_code,procedure_code,discharge_summary,documents) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
             (data.invoice_id, cov["coverage_id"], pre["preauth_id"] if pre else None,
-             submitted, data.diagnosis_code.upper(), data.discharge_summary.strip(), Jsonb(data.documents)))
+             submitted, review["diagnosis_code"], review["procedure_code"], data.discharge_summary.strip(), Jsonb(data.documents)))
         audit(conn, "CLAIM_SUBMITTED_DEMO", "claim", record["claim_id"])
         return record
 

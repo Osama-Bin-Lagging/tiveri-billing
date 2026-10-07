@@ -1,0 +1,31 @@
+---
+config:
+  theme: base
+  themeVariables:
+    fontFamily: Arial
+    fontSize: 18px
+    primaryColor: "#DDF7F3"
+    primaryBorderColor: "#078E9B"
+    primaryTextColor: "#173C55"
+    lineColor: "#16869B"
+  flowchart:
+    curve: linear
+    nodeSpacing: 20
+    rankSpacing: 28
+---
+flowchart LR
+  E["ENCOUNTER"] ---|1| H{"HAS"} ---|N| N["CLINICAL NOTE"]
+  N ---|1| CODES{"REVIEWED IN"} ---|0..N| C["CODING REVIEW"]
+  E ---|1| O{"ORDERS"} ---|N| P["PRESCRIPTION"]
+  P ---|1| F{"FILLED BY"} ---|0..N| D["DISPENSE"]
+  ea(["encounter_id PK"]) --- E
+  na(["provisional ICD-10"]) --- N
+  ca(["reviewed ICD-10"]) --- C
+  pa(["prescription_ref PK"]) --- P
+  da(["batch + quantity"]) --- D
+  classDef entity fill:#DDF7F3,stroke:#078E9B,stroke-width:2px,color:#173C55,font-weight:bold;
+  classDef relation fill:#FFF1DE,stroke:#F4A03A,stroke-width:2px,color:#173C55,font-weight:bold;
+  classDef attr fill:#FFFFFF,stroke:#80B9C5,stroke-width:1.5px,color:#314D5D;
+  class E,N,C,P,D entity;
+  class H,CODES,O,F relation;
+  class ea,na,ca,pa,da attr;
