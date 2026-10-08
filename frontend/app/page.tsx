@@ -20,8 +20,8 @@ function steps(detail: Row) {
   return [
     { name: "Registration", note: enc.encounter_id ? enc.setting : "Check in", ok: !!enc.encounter_id },
     { name: "Doctor", note: (detail.prescriptions || []).length ? "Orders sent" : (detail.consultations || []).length ? "Consulted" : "Waiting", ok: (detail.prescriptions || []).length > 0 },
-    { name: "Diagnostics", note: orders.length ? `${orders.filter(o => done(o.status)).length}/${orders.length} done` : "Not needed", ok: rx && orders.every(o => done(o.status)) },
-    { name: "Pharmacy", note: pharm.length ? `${pharm.filter((o: Row) => done(o.status)).length}/${pharm.length} done` : "Not needed", ok: rx && pharm.every((o: Row) => done(o.status)) },
+    { name: "Diagnostics", note: orders.length ? `${orders.filter(o => done(o.status)).length}/${orders.length} done` : rx ? "Not needed" : "—", ok: rx && orders.every(o => done(o.status)) },
+    { name: "Pharmacy", note: pharm.length ? `${pharm.filter((o: Row) => done(o.status)).length}/${pharm.length} done` : rx ? "Not needed" : "—", ok: rx && pharm.every((o: Row) => done(o.status)) },
     { name: "Discharge", note: enc.status === "OPEN" ? "Visit open" : enc.status ? "Done" : "—", ok: ["DISCHARGED", "BILLED"].includes(enc.status) },
     { name: "Bill", note: detail.invoice?.invoice_no || (enc.status === "DISCHARGED" ? "Audit next" : "—"), ok: !!detail.invoice },
     { name: "Payer", note: enc.payment_mode === "CASHLESS" ? (detail.claims || []).slice(-1)[0]?.status || (detail.invoice ? "Claim next" : "—") : "Self-pay", ok: enc.payment_mode !== "CASHLESS" ? !!detail.invoice : ["APPROVED", "PARTIAL"].includes((detail.claims || []).slice(-1)[0]?.status) },
