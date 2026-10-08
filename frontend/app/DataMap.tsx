@@ -163,7 +163,7 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
             const hot = lit.size ? lit.has(r.from) && lit.has(r.to) : r.from === active || r.to === active;
             return <g key={i} className={`p-dmx-edge ${on ? "on" : ""} ${hot ? "hot" : ""}`}>
               <path d={d} />
-              {!bus && r.label && <g transform={`translate(${mx},${my})`}><polygon points={hot ? "0,-11 22,0 0,11 -22,0" : "0,-5 9,0 0,5 -9,0"} className="p-dmx-diamond" />{hot && <text y={22} textAnchor="middle" className="p-dmx-rel-label">{r.label}</text>}</g>}
+              {!bus && r.label && !hot && <g transform={`translate(${mx},${my})`}><polygon points="0,-5 9,0 0,5 -9,0" className="p-dmx-diamond" /></g>}
             </g>;
           })}
           {ents.map(e => {
@@ -178,6 +178,22 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
               <text x={b.cx} y={b.cy + (e.kind === "relationship" ? 4 : 0)} textAnchor="middle" className="p-dmx-name">{e.er_name}</text>
               {e.kind !== "relationship" && <text x={b.cx} y={b.cy + 15} textAnchor="middle" className="p-dmx-table">{e.table}</text>}
               <g transform={`translate(${b.cx + b.w / 2 - 6},${b.cy - b.h / 2 + 2})`}><rect x={-16} y={-10} width={32} height={20} rx={10} fill={n ? stroke : "#c7d1d6"} /><text y={5} textAnchor="middle" className="p-dmx-count">{n}</text></g>
+            </g>;
+          })}
+          {/* Highlighted relationship diamonds and names sit above the boxes so tight gaps stay readable. */}
+          {(schema.relations || []).map((r: Row, i: number) => {
+            const a = byKey[r.from], b = byKey[r.to]; if (!a || !b || !r.label) return null;
+            const bus = r.to === "charge" && a.y >= 560;
+            const hot = lit.size ? lit.has(r.from) && lit.has(r.to) : r.from === active || r.to === active;
+            if (bus || !hot) return null;
+            const { mx, my } = edgePath(a, b, bus); const A = center(a), B = center(b);
+            const across = Math.abs(B.cy - A.cy) < 10;  // side by side in one row
+            const tight = across && Math.abs(B.cx - A.cx) - (A.w + B.w) / 2 < 60;
+            return <g key={`l${i}`} transform={`translate(${mx},${my})`} className="p-dmx-rel-top">
+              <polygon points="0,-11 22,0 0,11 -22,0" className="p-dmx-diamond" />
+              {tight ? <text y={-Math.max(A.h, B.h) / 2 - 13} textAnchor="middle" className="p-dmx-rel-label">{r.label}</text>
+                : across ? <text y={24} textAnchor="middle" className="p-dmx-rel-label">{r.label}</text>
+                : <text x={27} y={4} className="p-dmx-rel-label">{r.label}</text>}
             </g>;
           })}
         </svg>
