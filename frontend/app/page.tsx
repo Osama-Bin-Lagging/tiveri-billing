@@ -110,12 +110,12 @@ export default function Home() {
   const Desk = { RECEPTION: Reception, DOCTOR: Doctor, LAB: Diagnostics, PHARMACY: Pharmacy, ADMIN: Billing }[user.role];
   const role = roles.find(r => r.role === user.role);
 
-  return <div className="p-shell">
+  return <div className={`p-shell ${view === "map" ? "map" : ""}`}>
     <aside className="p-sidebar"><div className="p-logo dark"><span>+</span><b>Tiveri</b></div>
       <div className="p-side-label">SIGNED IN</div><div className="p-side-person"><span>{role?.icon}</span><div><b>{deskTitle[user.role]}</b><small>{user.display_name}</small></div></div>
       <div className="p-side-tabs"><button className={view === "desk" ? "active" : ""} onClick={() => setView("desk")}>Desk</button><button className={view === "map" ? "active" : ""} onClick={() => setView("map")}>Data map</button></div>
       <div className="p-side-label">PATIENTS</div>
-      <div className="p-side-list">{patients.map(row => <button key={row.patient_id} className={selected === row.patient_id ? "active" : ""} onClick={() => choose(row.patient_id)}>
+      <div className="p-side-list">{patients.map(row => <button key={row.patient_id} title={row.display_label} className={selected === row.patient_id ? "active" : ""} onClick={() => choose(row.patient_id)}>
         <span className="p-avatar">{initials(row.display_label)}</span><span><b>{row.display_label}</b><small>{row.mrn} · {row.latest_status ? `${row.latest_setting} ${row.latest_status.toLowerCase()}` : "no visit"}</small></span></button>)}</div>
       <div className="p-sidebar-foot"><span className="p-dot" /> PostgreSQL connected <button onClick={logout}>Sign out ↗</button></div>
     </aside>
@@ -126,11 +126,11 @@ export default function Home() {
       <div className="p-content">
         {error && <div className="p-alert error">{error}<button onClick={() => setError("")}>×</button></div>}
         {notice && <div className="p-alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
-        <section className="p-patient"><div className="p-patient-top"><div><div className="p-kicker">PATIENT · {patient.mrn}{patient.abha_number ? ` · ABHA ${patient.abha_number}` : ""}</div>
+        {view === "desk" && <section className="p-patient"><div className="p-patient-top"><div><div className="p-kicker">PATIENT · {patient.mrn}{patient.abha_number ? ` · ABHA ${patient.abha_number}` : ""}</div>
           <h2>{patient.display_label || "Choose a patient"}</h2><p>{patient.age_years} years · {patient.sex} · {patient.city} · {patient.blood_group} · {patient.allergies}</p></div>
           <div className="p-patient-tags">{enc.encounter_id ? <><Tag>{enc.setting}</Tag><Tag tone={statusTone(enc.status)}>{enc.status}</Tag><Tag tone="blue">{payerText(enc)}</Tag></> : <Tag tone="amber">No visit yet</Tag>}
             {(record.encounters || []).length > 1 && <select className="p-visit-pick" value={visit} onChange={e => refresh(selected, e.target.value)}>{record.encounters.map((e: Row) => <option key={e.encounter_id} value={e.encounter_id}>{e.encounter_id} · {e.status}</option>)}</select>}</div></div>
-          {patient.history_summary && <p className="p-history">{patient.history_summary}</p>}</section>
+          {patient.history_summary && <p className="p-history">{patient.history_summary}</p>}</section>}
         {view === "desk" && enc.encounter_id && <div className="p-flow">{steps(detail).map((s, i) => <div key={s.name} className={s.ok ? "done" : ""}><span>{s.ok ? "✓" : i + 1}</span><b>{s.name}</b><small>{s.note}</small></div>)}</div>}
         {view === "map" ? <DataMap ctx={ctx} /> : <Desk ctx={ctx} />}
       </div>

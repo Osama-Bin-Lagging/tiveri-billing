@@ -8,51 +8,55 @@ from .core import db, need, one, rows
 
 router = APIRouter()
 
-# key, ER name, table, kind (entity | weak | relationship | workflow), colour group, x, y, scope query.
+# key, ER name, table, kind (entity | weak | relationship | reference), colour group, x, y, scope query.
 # Scope queries receive %(p)s = patient_id and %(e)s = list of encounter ids in view.
 E = "encounter_id = ANY(%(e)s::text[])"
 INV = f"invoice_id IN (SELECT invoice_id FROM invoices WHERE {E})"
 ENTITIES = [
-    ("patient", "Patient", "patients", "entity", "HIS", 40, 40, "patient_id=%(p)s"),
-    ("registration", "Registration", "encounters", "entity", "HIS", 260, 40, E),
-    ("doctor", "Doctor", "doctors", "entity", "HIS", 40, 150,
+    # Lane: patient and visit (HIS core)
+    ("patient", "Patient", "patients", "entity", "HIS", 30, 50, "patient_id=%(p)s"),
+    ("registration", "Registration", "encounters", "entity", "HIS", 30, 150, E),
+    ("consultation", "Consultation", "consultations", "entity", "HIS", 30, 250, E),
+    ("prescription", "Prescription", "prescriptions", "entity", "HIS", 30, 350, E),
+    ("doctor", "Doctor", "doctors", "reference", "HIS", 195, 250,
      f"doctor_id IN (SELECT doctor_id FROM encounters WHERE {E} UNION SELECT doctor_id FROM consultations WHERE {E})"),
-    ("consultation", "Consultation", "consultations", "entity", "HIS", 260, 150, E),
-    ("prescription", "Prescription", "prescriptions", "entity", "HIS", 260, 265, E),
-    ("admits", "admits", "room_stays", "relationship", "HIS", 480, 105, E),
-    ("ward", "Ward", "wards", "entity", "HIS", 460, 190, f"ward_id IN (SELECT ward_id FROM room_stays WHERE {E})"),
-    ("radiology_order", "Radiology Order", "radiology_orders", "entity", "RIS", 40, 385, E),
-    ("lab_order", "Lab Order", "lab_orders", "entity", "LIS", 230, 385, E),
-    ("pharmacy_order", "Pharmacy Order", "pharmacy_orders", "entity", "PHARMACY", 420, 385, E),
-    ("procedure_order", "Procedure Order", "procedure_orders", "entity", "HIS", 610, 385, E),
-    ("radiology_result", "Radiology Result", "radiology_results", "entity", "RIS", 40, 500,
+    ("admits", "admits", "room_stays", "relationship", "HIS", 215, 150, E),
+    ("ward", "Ward", "wards", "reference", "HIS", 360, 150, f"ward_id IN (SELECT ward_id FROM room_stays WHERE {E})"),
+    # Lane: clinical orders and results
+    ("radiology_order", "Radiology Order", "radiology_orders", "entity", "RIS", 30, 480, E),
+    ("lab_order", "Lab Order", "lab_orders", "entity", "LIS", 195, 480, E),
+    ("pharmacy_order", "Pharmacy Order", "pharmacy_orders", "entity", "PHARMACY", 360, 480, E),
+    ("procedure_order", "Procedure Order", "procedure_orders", "entity", "HIS", 525, 480, E),
+    ("radiology_result", "Radiology Result", "radiology_results", "entity", "RIS", 30, 580,
      f"rad_order_id IN (SELECT rad_order_id FROM radiology_orders WHERE {E})"),
-    ("lab_result", "Lab Result", "lab_results", "entity", "LIS", 230, 500,
+    ("lab_result", "Lab Result", "lab_results", "entity", "LIS", 195, 580,
      f"lab_order_id IN (SELECT lab_order_id FROM lab_orders WHERE {E})"),
-    ("medication_issue", "Medication Issue", "dispenses", "entity", "PHARMACY", 420, 500, E),
-    ("procedure_performed", "Procedure Performed", "procedures_performed", "entity", "HIS", 610, 500,
+    ("medication_issue", "Medication Issue", "dispenses", "entity", "PHARMACY", 360, 580, E),
+    ("procedure_performed", "Procedure Performed", "procedures_performed", "entity", "HIS", 525, 580,
      f"proc_order_id IN (SELECT proc_order_id FROM procedure_orders WHERE {E})"),
-    ("bill", "Bill", "invoices", "entity", "BILLING", 830, 40, E),
-    ("payment", "Payment", "receipts", "entity", "BILLING", 1030, 40, INV),
-    ("claim", "Insurance Claim", "claims", "entity", "INSURANCE", 830, 160, INV),
-    ("insurance", "Insurance", "insurance_policies", "entity", "INSURANCE", 1030, 160, "patient_id=%(p)s"),
-    ("charge", "Charge", "charges", "entity", "BILLING", 830, 300, E),
-    ("bill_line", "Bill Line", "invoice_lines", "weak", "BILLING", 1030, 300, INV),
-    ("service", "Service", "services", "entity", "BILLING", 830, 430,
+    # Lane: billing
+    ("charge", "Charge", "charges", "entity", "BILLING", 705, 250, E),
+    ("bill_line", "Bill Line", "invoice_lines", "weak", "BILLING", 870, 250, INV),
+    ("bill", "Bill", "invoices", "entity", "BILLING", 870, 150, E),
+    ("payment", "Payment", "receipts", "entity", "BILLING", 1035, 150, INV),
+    ("service", "Service", "services", "reference", "BILLING", 705, 370,
      f"service_code IN (SELECT service_code FROM charges WHERE {E})"),
-    ("payer_rate", "Payer Rate", "payer_rates", "entity", "BILLING", 1030, 430,
+    ("payer_rate", "Payer Rate", "payer_rates", "reference", "BILLING", 870, 370,
      f"service_code IN (SELECT service_code FROM charges WHERE {E}) AND (payer_route, payer_label) IN "
      f"(SELECT payer_route, payer_label FROM encounters WHERE {E} UNION SELECT payer_route, '' FROM encounters WHERE {E})"),
-    ("appointment", "Appointment", "appointments", "workflow", "WORKFLOW", 40, 640, "patient_id=%(p)s"),
-    ("coverage", "Coverage check", "coverages", "workflow", "WORKFLOW", 185, 640, E),
-    ("preauth", "Pre-authorisation", "preauths", "workflow", "WORKFLOW", 330, 640, E),
-    ("deposit", "Deposit", "advances", "workflow", "WORKFLOW", 475, 640, E),
-    ("adjustment", "Shortfall / write-off", "balance_adjustments", "workflow", "WORKFLOW", 620, 640, INV),
-    ("refund", "Refund", "refunds", "workflow", "WORKFLOW", 765, 640, E),
-    ("notification", "Notification", "notifications", "workflow", "WORKFLOW", 910, 640, "patient_id=%(p)s"),
-    ("tax_rule", "Tax Rule", "tax_rules", "workflow", "WORKFLOW", 1055, 640,
+    ("tax_rule", "Tax Rule", "tax_rules", "reference", "BILLING", 705, 480,
      f"rule_code IN (SELECT tax_rule_code FROM charges WHERE {E})"),
+    # Lane: payer
+    ("claim", "Insurance Claim", "claims", "entity", "INSURANCE", 870, 50, INV),
+    ("insurance", "Insurance", "insurance_policies", "entity", "INSURANCE", 1035, 50, "patient_id=%(p)s"),
 ]
+LANES = [
+    {"label": "PATIENT & VISIT · HIS", "x": 14, "y": 18, "w": 506, "h": 400},
+    {"label": "CLINICAL ORDERS → RESULTS", "x": 14, "y": 446, "w": 666, "h": 228},
+    {"label": "PAYER", "x": 855, "y": 18, "w": 330, "h": 100},
+    {"label": "BILLING", "x": 690, "y": 126, "w": 495, "h": 420},
+]
+# Timestamp columns used when a record has no audit event of its own (oldest first wins).
 KEYS = {e[0] for e in ENTITIES}
 TABLE_TO_KEY = {}
 for _e in ENTITIES:
@@ -82,6 +86,7 @@ RELATIONS = [
     ("medication_issue", "charge", "charges", "1", "1"),
     ("procedure_performed", "charge", "charges", "1", "1"),
     ("admits", "charge", "bed days", "1", "1"),
+    ("service", "tax_rule", "taxed by", "N", "1"),
     ("registration", "charge", "accrues", "1", "N"),
     ("service", "charge", "charged as", "1", "N"),
     ("service", "payer_rate", "priced by", "1", "N"),
@@ -126,7 +131,7 @@ def _schema(conn) -> dict:
                          "x": x, "y": y, "pk": pk, "attributes": attrs})
     return {"entities": entities,
             "relations": [{"from": a, "to": b, "label": l, "card_from": cf, "card_to": ct} for a, b, l, cf, ct in RELATIONS],
-            "canvas": {"width": 1200, "height": 710}}
+            "lanes": LANES, "canvas": {"width": 1200, "height": 690}}
 
 
 @router.get("/api/datamap/schema")
@@ -155,7 +160,21 @@ def datamap(patient_id: str, encounter_id: str = ""):
             data[key] = {"count": len(records), "rows": records}
             pk = pk_of[key]
             pairs += [(table, str(r[pk])) for r in records if pk in r]
+        # Replay order: the first audit event of each record (audit_id is strictly sequential).
+        first_seen = {(r["entity"], r["entity_id"]): r["seq"] for r in rows(conn, """SELECT a.entity, a.entity_id,
+            min(a.audit_id) AS seq FROM audit_events a JOIN unnest(%s::text[], %s::text[]) AS t(entity, entity_id)
+            USING (entity, entity_id) GROUP BY 1, 2""", ([p[0] for p in pairs], [p[1] for p in pairs]))}
+        seq_of = lambda table, value: first_seen.get((table, str(value)))
+        parents = {"lab_orders": ("prescriptions", "prescription_id"), "radiology_orders": ("prescriptions", "prescription_id"),
+                   "procedure_orders": ("prescriptions", "prescription_id"), "pharmacy_orders": ("prescriptions", "prescription_id"),
+                   "invoice_lines": ("invoices", "invoice_id"), "coverages": ("encounters", "encounter_id")}
+        for key, _, table, kind, *_rest in ENTITIES:
+            for r in data[key]["rows"]:
+                seq = None if kind == "reference" else seq_of(table, r.get(pk_of[key]))
+                if seq is None and table in parents:
+                    seq = seq_of(parents[table][0], r.get(parents[table][1]))
+                r["_seq"] = seq
         timeline = rows(conn, """SELECT a.* FROM audit_events a
             JOIN unnest(%s::text[], %s::text[]) AS t(entity, entity_id) USING (entity, entity_id)
-            ORDER BY a.created_at DESC, a.audit_id DESC LIMIT 200""", ([p[0] for p in pairs], [p[1] for p in pairs]))
+            ORDER BY a.audit_id LIMIT 400""", ([p[0] for p in pairs], [p[1] for p in pairs]))
         return {"patient_id": patient_id, "encounter_ids": encounters, "entities": data, "timeline": timeline}

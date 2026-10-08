@@ -44,7 +44,8 @@ def actor(request: Request) -> str:
 
 def audit(conn: psycopg.Connection, who: str, action: str, entity: str, entity_id: Any, details: dict | None = None) -> None:
     """Entity names are table names so the Data map can match events to records."""
-    conn.execute("INSERT INTO audit_events(actor,action,entity,entity_id,details) VALUES (%s,%s,%s,%s,%s)",
+    conn.execute("""INSERT INTO audit_events(actor,action,entity,entity_id,details,created_at)
+        VALUES (%s,%s,%s,%s,%s,clock_timestamp())""",
                  (who, action, entity, str(entity_id), Jsonb(details or {})))
 
 
