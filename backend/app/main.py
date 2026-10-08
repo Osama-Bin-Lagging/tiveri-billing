@@ -59,7 +59,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Tiveri Billing Demo API", version="3.0", lifespan=lifespan)
+app = FastAPI(title="Syndicate 1 Billing Demo API", version="3.0", lifespan=lifespan)
 for module in (reception, clinical, billing, payer, records, datamap):
     app.include_router(module.router)
 
@@ -249,7 +249,7 @@ def gstr1_report(month: str = Query(default_factory=lambda: date.today().strftim
     numbers = sorted({r["invoice_no"] for r in records_})
     return {"period": month, "tables": {"table4": table4, "table7": list(table7.values()),
             "table8": [{"category": k[0], "state_code": k[1], "value_paise": v} for k, v in table8.items()],
-            "table12": list(table12.values()), "table13": [{"series": "TVR", "issued_count": len(numbers),
+            "table12": list(table12.values()), "table13": [{"series": "SYN", "issued_count": len(numbers),
              "invoice_numbers": numbers}]}, "warnings": warnings}
 
 

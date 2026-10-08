@@ -164,7 +164,7 @@ def finalize_bill(conn, who: str, encounter_id: str) -> dict:
     invoice = one(conn, """INSERT INTO invoices(invoice_id,encounter_id,invoice_no,subtotal_paise,tax_paise,total_paise,
         patient_share_paise,payer_share_paise,due_date) OVERRIDING SYSTEM VALUE
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-        (seq, encounter_id, f"TVR-{date.today().year}-{seq:05d}", totals["subtotal_paise"], totals["tax_paise"],
+        (seq, encounter_id, f"SYN-{date.today().year}-{seq:05d}", totals["subtotal_paise"], totals["tax_paise"],
          totals["total_paise"], patient_share, payer_share, date.today() + timedelta(days=PATIENT_DUE_DAYS)))
     for n, c in enumerate(charges, 1):
         line_tax = tax_amount(c["subtotal_paise"], c["tax_rate_bps"])

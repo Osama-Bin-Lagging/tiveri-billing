@@ -1,4 +1,4 @@
-# Tiveri Billing
+# Syndicate 1 Billing
 
 A DH 308 teaching prototype of a hospital billing system integrated with the HIS, for an Indian hospital. Next.js website, FastAPI API, PostgreSQL 16. All patients, prices, payer references and clinical details are invented.
 

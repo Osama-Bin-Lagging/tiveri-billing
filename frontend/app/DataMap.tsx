@@ -140,7 +140,7 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
         <h2>{record.patient?.display_label}</h2><p>{total} records across {ents.filter(e => e.kind !== "reference" && count(e.key)).length} tables. Click a box, then a record, to follow its links.</p></div>
       <div className="p-dmx-tools">
         <select value={visit} onChange={e => { setVisit(e.target.value); setOpen(null); }} aria-label="Visit"><option value="">All visits</option>{(record.encounters || []).map((e: Row) => <option key={e.encounter_id} value={e.encounter_id}>{e.encounter_id} · {e.setting} · {e.status}</option>)}</select>
-        <div className="p-dmx-search"><input value={query} placeholder="Find an ID, e.g. TVR-2026-00001" onChange={e => { setQuery(e.target.value); setMiss(""); }} onKeyDown={e => { if (e.key === "Enter") search(); }} /><button onClick={search}>Find</button></div>
+        <div className="p-dmx-search"><input value={query} placeholder="Find an ID, e.g. SYN-2026-00001" onChange={e => { setQuery(e.target.value); setMiss(""); }} onKeyDown={e => { if (e.key === "Enter") search(); }} /><button onClick={search}>Find</button></div>
       </div>
     </div>
     {miss && <div className="p-alert error">{miss}</div>}

@@ -90,7 +90,7 @@ export default function Home() {
 
   if (loading) return <div className="p-loading">Opening the hospital demo…</div>;
   if (!user) return <main className="p-login">
-    <section className="p-login-story"><div className="p-logo"><span>+</span><b>Tiveri</b><small>HOSPITAL OPERATIONS</small></div>
+    <section className="p-login-story"><div className="p-logo"><span>+</span><b>Syndicate 1</b><small>HOSPITAL OPERATIONS</small></div>
       <div className="p-login-copy"><div className="p-kicker">DH 308 · LIVE PROJECT</div><h1>One patient.<br />Five connected desks.</h1>
         <p>Follow a visit from registration through consultation, diagnostics, pharmacy and discharge to an audited bill, the insurer and the final payment.</p>
         <div className="p-steps"><span>Reception</span><i /><span>Doctor</span><i /><span>Diagnostics</span><i /><span>Pharmacy</span><i /><span>Billing</span></div></div>
@@ -111,7 +111,7 @@ export default function Home() {
   const role = roles.find(r => r.role === user.role);
 
   return <div className={`p-shell ${view === "map" ? "map" : ""}`}>
-    <aside className="p-sidebar"><div className="p-logo dark"><span>+</span><b>Tiveri</b></div>
+    <aside className="p-sidebar"><div className="p-logo dark"><span>+</span><b>Syndicate 1</b></div>
       <div className="p-side-label">SIGNED IN</div><div className="p-side-person"><span>{role?.icon}</span><div><b>{deskTitle[user.role]}</b><small>{user.display_name}</small></div></div>
       <div className="p-side-tabs"><button className={view === "desk" ? "active" : ""} onClick={() => setView("desk")}>Desk</button><button className={view === "map" ? "active" : ""} onClick={() => setView("map")}>Data map</button></div>
       <div className="p-side-label">PATIENTS</div>

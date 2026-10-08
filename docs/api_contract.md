@@ -1,4 +1,4 @@
-# Tiveri demo API (v3, schema version 2)
+# Syndicate 1 demo API (v3, schema version 2)
 
 FastAPI serves http://127.0.0.1:8000 (interactive docs at `/docs`). Next.js calls it through same-origin `/api`. All data is synthetic; insurer, PM-JAY, SMS and GST portal actions are simulated.
 

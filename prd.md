@@ -1,4 +1,4 @@
-# Product Requirements Document: Tiveri Billing (HIS-integrated hospital billing, teaching prototype)
+# Product Requirements Document: Syndicate 1 Billing (HIS-integrated hospital billing, teaching prototype)
 
 ## Product Overview
 **Product Vision:** Show, end to end and live, how clinical work in an HIS becomes a correct, audited hospital bill and is settled by patient, insurer or scheme — with every record visible on the ER diagram.
