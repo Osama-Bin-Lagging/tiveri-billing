@@ -1,51 +1,189 @@
-CREATE TABLE IF NOT EXISTS patients (
-  patient_id TEXT PRIMARY KEY,
-  display_label TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-ALTER TABLE patients ADD COLUMN IF NOT EXISTS age_years INTEGER;
-ALTER TABLE patients ADD COLUMN IF NOT EXISTS sex TEXT NOT NULL DEFAULT '';
-ALTER TABLE patients ADD COLUMN IF NOT EXISTS blood_group TEXT NOT NULL DEFAULT '';
-ALTER TABLE patients ADD COLUMN IF NOT EXISTS contact_masked TEXT NOT NULL DEFAULT '';
-ALTER TABLE patients ADD COLUMN IF NOT EXISTS city TEXT NOT NULL DEFAULT '';
-ALTER TABLE patients ADD COLUMN IF NOT EXISTS allergies TEXT NOT NULL DEFAULT '';
-ALTER TABLE patients ADD COLUMN IF NOT EXISTS history_summary TEXT NOT NULL DEFAULT '';
+-- Schema version 2. Applied only on a fresh database or when schema_meta.version is older;
+-- main.initialise() drops the previous tables first. All data is synthetic.
+-- ER-diagram names are noted beside each table (see docs/er_mapping.md).
 
-CREATE TABLE IF NOT EXISTS admission_plans (
-  patient_id TEXT PRIMARY KEY REFERENCES patients(patient_id),
-  payer_route TEXT NOT NULL CHECK (payer_route IN ('SELF','PRIVATE')),
-  payment_mode TEXT NOT NULL DEFAULT 'SELF' CHECK (payment_mode IN ('SELF','CASHLESS','REIMBURSEMENT')),
-  payer_label TEXT NOT NULL DEFAULT 'Self pay',
-  member_ref TEXT NOT NULL DEFAULT '',
-  copay_bps INTEGER NOT NULL DEFAULT 0 CHECK (copay_bps BETWEEN 0 AND 10000),
-  selected_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-ALTER TABLE admission_plans ADD COLUMN IF NOT EXISTS payment_mode TEXT NOT NULL DEFAULT 'SELF'
-  CHECK (payment_mode IN ('SELF','CASHLESS','REIMBURSEMENT'));
+CREATE TABLE schema_meta (version INTEGER NOT NULL);
 
-CREATE TABLE IF NOT EXISTS staff_users (
+-- Reference data -----------------------------------------------------------
+
+CREATE TABLE departments (                         -- Doctor.department attribute
+  department_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('CLINICAL','DIAGNOSTIC','PHARMACY','SUPPORT'))
+);
+
+CREATE TABLE tax_rules (                           -- Service.gst_rate / hsn_sac
+  rule_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  rule_code TEXT NOT NULL,
+  effective_from DATE NOT NULL,
+  effective_to DATE,
+  tax_category TEXT NOT NULL CHECK (tax_category IN ('EXEMPT','NIL','TAXABLE','REVIEW')),
+  rate_bps INTEGER NOT NULL CHECK (rate_bps BETWEEN 0 AND 10000),
+  hsn_sac TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  UNIQUE (rule_code, effective_from)
+);
+
+CREATE TABLE services (                            -- ER: Service
+  service_code TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  department_id TEXT NOT NULL REFERENCES departments(department_id),
+  kind TEXT NOT NULL CHECK (kind IN ('CARE','LAB','RADIOLOGY','ROOM','PROCEDURE','PHARMACY','PACKAGE','DEVICE')),
+  base_unit_paise BIGINT NOT NULL CHECK (base_unit_paise >= 0),
+  tax_rule_code TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true
+);
+
+CREATE TABLE payer_rates (                         -- ER: Payer Rate
+  service_code TEXT NOT NULL REFERENCES services(service_code),
+  payer_route TEXT NOT NULL,
+  payer_label TEXT NOT NULL DEFAULT '',
+  unit_paise BIGINT NOT NULL CHECK (unit_paise >= 0),
+  PRIMARY KEY (service_code, payer_route, payer_label)
+);
+
+CREATE TABLE diagnosis_catalog (                   -- ICD-10 picker for Prescription.icd_code
+  icd_code TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  snomed_code TEXT NOT NULL
+);
+
+CREATE TABLE lab_catalog (
+  service_code TEXT PRIMARY KEY REFERENCES services(service_code),
+  loinc_code TEXT NOT NULL,
+  result_unit TEXT NOT NULL,
+  specimen TEXT NOT NULL,
+  reference_range TEXT NOT NULL DEFAULT '',
+  cpt_reference TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE radiology_catalog (
+  service_code TEXT PRIMARY KEY REFERENCES services(service_code),
+  snomed_code TEXT NOT NULL,
+  modality TEXT NOT NULL CHECK (modality IN ('XRAY','CT','USG','MRI')),
+  body_site TEXT NOT NULL
+);
+
+CREATE TABLE procedure_catalog (
+  service_code TEXT PRIMARY KEY REFERENCES services(service_code),
+  snomed_code TEXT NOT NULL,
+  outsourced BOOLEAN NOT NULL DEFAULT false,
+  partner TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE pharmacy_items (
+  item_code TEXT PRIMARY KEY,
+  service_code TEXT NOT NULL UNIQUE REFERENCES services(service_code),
+  display_name TEXT NOT NULL,
+  requires_prescription BOOLEAN NOT NULL DEFAULT true,
+  controlled_stock BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE TABLE stock_batches (
+  batch_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  item_code TEXT NOT NULL REFERENCES pharmacy_items(item_code),
+  batch_no TEXT NOT NULL,
+  expiry_date DATE NOT NULL,
+  quantity_available INTEGER NOT NULL CHECK (quantity_available >= 0),
+  UNIQUE (item_code, batch_no)
+);
+
+CREATE TABLE package_catalog (
+  package_code TEXT PRIMARY KEY,
+  service_code TEXT NOT NULL UNIQUE REFERENCES services(service_code),
+  payer_route TEXT NOT NULL,
+  included_kinds TEXT[] NOT NULL DEFAULT '{}',
+  preauth_required BOOLEAN NOT NULL DEFAULT false,
+  note TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE wards (                               -- ER: Ward
+  ward_id TEXT PRIMARY KEY,
+  ward_name TEXT NOT NULL,
+  ward_type TEXT NOT NULL CHECK (ward_type IN ('GENERAL','SEMI_PRIVATE','PRIVATE','ICU')),
+  room_service_code TEXT NOT NULL REFERENCES services(service_code),
+  beds INTEGER NOT NULL CHECK (beds > 0)
+);
+
+CREATE TABLE doctors (                             -- ER: Doctor
+  doctor_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  specialization TEXT NOT NULL,
+  department_id TEXT NOT NULL REFERENCES departments(department_id),
+  contact_masked TEXT NOT NULL DEFAULT '',
+  consult_service_code TEXT NOT NULL REFERENCES services(service_code)
+);
+
+-- Staff and sessions ---------------------------------------------------------
+
+CREATE TABLE staff_users (
   username TEXT PRIMARY KEY,
   display_name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('ADMIN','DOCTOR','LAB','PHARMACY')),
+  role TEXT NOT NULL CHECK (role IN ('ADMIN','DOCTOR','LAB','PHARMACY','RECEPTION')),
+  doctor_id TEXT REFERENCES doctors(doctor_id),
   password_salt TEXT NOT NULL,
   password_hash TEXT NOT NULL
 );
-ALTER TABLE staff_users DROP CONSTRAINT IF EXISTS staff_users_role_check;
-CREATE TABLE IF NOT EXISTS auth_sessions (
+
+CREATE TABLE auth_sessions (
   token_hash TEXT PRIMARY KEY,
   username TEXT NOT NULL REFERENCES staff_users(username),
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-DROP TABLE IF EXISTS coding_reviews;
-DELETE FROM auth_sessions WHERE username IN ('coder','billing');
-DELETE FROM staff_users WHERE username IN ('coder','billing');
-ALTER TABLE staff_users ADD CONSTRAINT staff_users_role_check CHECK (role IN ('ADMIN','DOCTOR','LAB','PHARMACY'));
 
-CREATE TABLE IF NOT EXISTS encounters (
+-- Patients, insurance and visits -------------------------------------------
+
+CREATE TABLE patients (                            -- ER: Patient (age is derived from dob)
+  patient_id TEXT PRIMARY KEY,
+  mrn TEXT NOT NULL UNIQUE,
+  display_label TEXT NOT NULL,
+  dob DATE NOT NULL,
+  sex TEXT NOT NULL DEFAULT '',
+  blood_group TEXT NOT NULL DEFAULT '',
+  contact_masked TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '',
+  allergies TEXT NOT NULL DEFAULT '',
+  history_summary TEXT NOT NULL DEFAULT '',
+  abha_number TEXT UNIQUE,
+  abha_address TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE insurance_policies (                  -- ER: Insurance
+  policy_id TEXT PRIMARY KEY,
+  patient_id TEXT NOT NULL REFERENCES patients(patient_id),
+  payer_route TEXT NOT NULL CHECK (payer_route IN ('PRIVATE','PMJAY','CGHS','CORPORATE')),
+  provider_name TEXT NOT NULL,
+  policy_no TEXT NOT NULL,
+  coverage_type TEXT NOT NULL DEFAULT 'INDIVIDUAL',
+  valid_from DATE NOT NULL,
+  valid_to DATE NOT NULL,
+  coverage_amount_paise BIGINT NOT NULL CHECK (coverage_amount_paise >= 0),
+  nominee TEXT NOT NULL DEFAULT '',
+  copay_bps INTEGER NOT NULL DEFAULT 0 CHECK (copay_bps BETWEEN 0 AND 10000),
+  CHECK (valid_to >= valid_from)
+);
+
+CREATE TABLE appointments (                        -- workflow: Appointment schedule
+  appointment_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  patient_id TEXT NOT NULL REFERENCES patients(patient_id),
+  doctor_id TEXT NOT NULL REFERENCES doctors(doctor_id),
+  slot_at TIMESTAMPTZ NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'BOOKED' CHECK (status IN ('BOOKED','CHECKED_IN','CANCELLED')),
+  encounter_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE encounters (                          -- ER: Registration
   encounter_id TEXT PRIMARY KEY,
   patient_id TEXT NOT NULL REFERENCES patients(patient_id),
+  doctor_id TEXT REFERENCES doctors(doctor_id),
+  appointment_id BIGINT REFERENCES appointments(appointment_id),
+  policy_id TEXT REFERENCES insurance_policies(policy_id),
   setting TEXT NOT NULL CHECK (setting IN ('OPD','IPD','EMERGENCY','DAY_CARE')),
+  payment_mode TEXT NOT NULL DEFAULT 'SELF' CHECK (payment_mode IN ('SELF','CASHLESS','REIMBURSEMENT')),
   payer_route TEXT NOT NULL CHECK (payer_route IN ('SELF','PRIVATE','PMJAY','CGHS','CORPORATE')),
   payer_label TEXT NOT NULL DEFAULT '',
   bill_to_gstin TEXT NOT NULL DEFAULT '',
@@ -54,201 +192,195 @@ CREATE TABLE IF NOT EXISTS encounters (
   opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   discharged_at TIMESTAMPTZ
 );
+ALTER TABLE appointments ADD CONSTRAINT appointments_encounter_fk
+  FOREIGN KEY (encounter_id) REFERENCES encounters(encounter_id);
+CREATE UNIQUE INDEX one_active_visit ON encounters(patient_id) WHERE status IN ('OPEN','DISCHARGED');
 
-CREATE TABLE IF NOT EXISTS clinical_notes (
-  note_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
-  author_username TEXT NOT NULL REFERENCES staff_users(username),
-  note_type TEXT NOT NULL DEFAULT 'PROGRESS',
-  note_text TEXT NOT NULL,
-  provisional_icd_code TEXT NOT NULL DEFAULT '',
-  procedure_code TEXT NOT NULL DEFAULT '',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-ALTER TABLE clinical_notes ADD COLUMN IF NOT EXISTS provisional_icd_code TEXT NOT NULL DEFAULT '';
-ALTER TABLE clinical_notes ADD COLUMN IF NOT EXISTS procedure_code TEXT NOT NULL DEFAULT '';
-CREATE TABLE IF NOT EXISTS prescriptions (
-  prescription_ref TEXT PRIMARY KEY,
-  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
-  item_code TEXT NOT NULL,
-  quantity INTEGER NOT NULL CHECK (quantity > 0),
-  instruction TEXT NOT NULL DEFAULT '',
-  author_username TEXT NOT NULL REFERENCES staff_users(username),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS coverages (
+CREATE TABLE coverages (                           -- the Insurance used for one Registration
   coverage_id TEXT PRIMARY KEY,
   encounter_id TEXT NOT NULL UNIQUE REFERENCES encounters(encounter_id),
+  policy_id TEXT REFERENCES insurance_policies(policy_id),
   payer_route TEXT NOT NULL,
   payer_label TEXT NOT NULL,
   member_ref TEXT NOT NULL DEFAULT '',
-  referral_ref TEXT NOT NULL DEFAULT '',
-  eligibility_status TEXT NOT NULL DEFAULT 'UNVERIFIED_DEMO',
-  preauth_required BOOLEAN NOT NULL DEFAULT false
-);
-ALTER TABLE coverages ADD COLUMN IF NOT EXISTS copay_bps INTEGER NOT NULL DEFAULT 0
-  CHECK (copay_bps BETWEEN 0 AND 10000);
-
-CREATE TABLE IF NOT EXISTS tax_rules (
-  rule_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  rule_code TEXT NOT NULL,
-  effective_from DATE NOT NULL,
-  effective_to DATE,
-  tax_category TEXT NOT NULL CHECK (tax_category IN ('EXEMPT','NIL','TAXABLE','REVIEW')),
-  rate_bps INTEGER NOT NULL CHECK (rate_bps >= 0 AND rate_bps <= 10000),
-  hsn_sac TEXT NOT NULL,
-  note TEXT NOT NULL DEFAULT '',
-  UNIQUE (rule_code,effective_from)
-);
-
-CREATE TABLE IF NOT EXISTS services (
-  service_code TEXT PRIMARY KEY,
-  description TEXT NOT NULL,
-  department TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('CARE','LAB','ROOM','PROCEDURE','PHARMACY','PACKAGE','DEVICE')),
-  base_unit_paise BIGINT NOT NULL CHECK (base_unit_paise >= 0),
-  tax_rule_code TEXT NOT NULL,
-  active BOOLEAN NOT NULL DEFAULT true
-);
-
-CREATE TABLE IF NOT EXISTS lab_catalog (
-  service_code TEXT PRIMARY KEY REFERENCES services(service_code),
-  loinc_code TEXT NOT NULL,
-  cpt_reference TEXT NOT NULL DEFAULT '',
-  result_unit TEXT NOT NULL,
-  specimen TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS lab_orders (
-  lab_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
-  service_code TEXT NOT NULL REFERENCES lab_catalog(service_code),
-  status TEXT NOT NULL DEFAULT 'ORDERED' CHECK (status IN ('ORDERED','COMPLETED')),
-  ordered_by TEXT NOT NULL REFERENCES staff_users(username),
-  performed_by TEXT REFERENCES staff_users(username),
-  result_value NUMERIC(6,2),
-  charge_id BIGINT,
-  ordered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  completed_at TIMESTAMPTZ,
-  UNIQUE (encounter_id,service_code)
-);
-
-CREATE TABLE IF NOT EXISTS payer_rates (
-  service_code TEXT NOT NULL REFERENCES services(service_code),
-  payer_route TEXT NOT NULL,
-  payer_label TEXT NOT NULL DEFAULT '',
-  unit_paise BIGINT NOT NULL CHECK (unit_paise >= 0),
-  PRIMARY KEY (service_code,payer_route,payer_label)
-);
-
-CREATE TABLE IF NOT EXISTS pharmacy_items (
-  item_code TEXT PRIMARY KEY,
-  service_code TEXT NOT NULL UNIQUE REFERENCES services(service_code),
-  display_name TEXT NOT NULL,
-  requires_prescription BOOLEAN NOT NULL DEFAULT true,
-  controlled_stock BOOLEAN NOT NULL DEFAULT false
-);
-
-CREATE TABLE IF NOT EXISTS stock_batches (
-  batch_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  item_code TEXT NOT NULL REFERENCES pharmacy_items(item_code),
-  batch_no TEXT NOT NULL,
-  expiry_date DATE NOT NULL,
-  quantity_available INTEGER NOT NULL CHECK (quantity_available >= 0),
-  UNIQUE (item_code,batch_no)
-);
-
-CREATE TABLE IF NOT EXISTS package_catalog (
-  package_code TEXT PRIMARY KEY,
-  service_code TEXT NOT NULL UNIQUE REFERENCES services(service_code),
-  payer_route TEXT NOT NULL,
-  included_departments TEXT[] NOT NULL DEFAULT '{}',
+  eligibility_status TEXT NOT NULL DEFAULT 'UNVERIFIED' CHECK (eligibility_status IN ('UNVERIFIED','VERIFIED','NOT_ELIGIBLE')),
+  verified_at TIMESTAMPTZ,
   preauth_required BOOLEAN NOT NULL DEFAULT false,
-  note TEXT NOT NULL DEFAULT ''
+  copay_bps INTEGER NOT NULL DEFAULT 0 CHECK (copay_bps BETWEEN 0 AND 10000)
 );
 
-CREATE TABLE IF NOT EXISTS room_stays (
-  room_stay_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
-  room_code TEXT NOT NULL REFERENCES services(service_code),
-  start_date DATE NOT NULL,
-  end_date DATE NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CHECK (end_date > start_date),
-  UNIQUE (encounter_id,room_code,start_date,end_date)
-);
+-- Clinical ------------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS charges (
+CREATE TABLE charges (                             -- ER: Charge (was Bill Item)
   charge_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
   source_event_id TEXT NOT NULL UNIQUE,
+  source_type TEXT NOT NULL DEFAULT 'HIS_EVENT',
+  source_id TEXT NOT NULL DEFAULT '',
+  charge_type TEXT NOT NULL DEFAULT 'CHARGE' CHECK (charge_type IN ('CHARGE','REVERSAL','PACKAGE_ADJ')),
+  reverses_charge_id BIGINT REFERENCES charges(charge_id),
   service_code TEXT NOT NULL REFERENCES services(service_code),
   description TEXT NOT NULL,
   department TEXT NOT NULL,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   unit_price_paise BIGINT NOT NULL CHECK (unit_price_paise >= 0),
-  subtotal_paise BIGINT GENERATED ALWAYS AS (quantity * unit_price_paise) STORED,
+  subtotal_paise BIGINT GENERATED ALWAYS AS
+    ((CASE WHEN charge_type = 'CHARGE' THEN 1 ELSE -1 END) * quantity * unit_price_paise) STORED,
   tax_rule_code TEXT NOT NULL,
   tax_category TEXT NOT NULL,
   tax_rate_bps INTEGER NOT NULL CHECK (tax_rate_bps >= 0),
   hsn_sac TEXT NOT NULL,
-  included_in_package BOOLEAN NOT NULL DEFAULT false,
-  room_stay_id BIGINT REFERENCES room_stays(room_stay_id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  reason TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT 'system',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK ((charge_type = 'CHARGE') = (reverses_charge_id IS NULL))
+);
+CREATE UNIQUE INDEX charges_offset_once ON charges(reverses_charge_id) WHERE reverses_charge_id IS NOT NULL;
+
+CREATE TABLE consultations (                       -- ER: Consultation
+  consult_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  doctor_id TEXT NOT NULL REFERENCES doctors(doctor_id),
+  consult_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  notes TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'COMPLETED',
+  charge_id BIGINT REFERENCES charges(charge_id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS lab_orders_charge_id_unique ON lab_orders(charge_id) WHERE charge_id IS NOT NULL;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lab_orders_charge_fk') THEN
-    ALTER TABLE lab_orders ADD CONSTRAINT lab_orders_charge_fk
-      FOREIGN KEY (charge_id) REFERENCES charges(charge_id);
-  END IF;
-END $$;
+CREATE TABLE prescriptions (                       -- ER: Prescription (order header)
+  prescription_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  consult_id BIGINT NOT NULL REFERENCES consultations(consult_id),
+  doctor_id TEXT NOT NULL REFERENCES doctors(doctor_id),
+  icd_code TEXT NOT NULL REFERENCES diagnosis_catalog(icd_code),
+  snomed_code TEXT NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  prescribed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
-CREATE TABLE IF NOT EXISTS dispenses (
+CREATE TABLE lab_orders (                          -- ER: Lab Order
+  lab_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  prescription_id BIGINT NOT NULL REFERENCES prescriptions(prescription_id),
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  service_code TEXT NOT NULL REFERENCES lab_catalog(service_code),
+  status TEXT NOT NULL DEFAULT 'ORDERED' CHECK (status IN ('ORDERED','COMPLETED','CANCELLED')),
+  ordered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE lab_results (                         -- ER: Lab Result
+  result_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  lab_order_id BIGINT NOT NULL UNIQUE REFERENCES lab_orders(lab_order_id),
+  loinc_code TEXT NOT NULL,
+  result_value NUMERIC(10,2) NOT NULL,
+  result_unit TEXT NOT NULL,
+  report_file TEXT NOT NULL DEFAULT '',
+  performed_by TEXT NOT NULL,
+  report_date TIMESTAMPTZ NOT NULL DEFAULT now(),
+  charge_id BIGINT REFERENCES charges(charge_id)
+);
+
+CREATE TABLE radiology_orders (                    -- ER: Radiology Order
+  rad_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  prescription_id BIGINT NOT NULL REFERENCES prescriptions(prescription_id),
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  service_code TEXT NOT NULL REFERENCES radiology_catalog(service_code),
+  modality TEXT NOT NULL,
+  clinical_notes TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'ORDERED' CHECK (status IN ('ORDERED','COMPLETED','CANCELLED')),
+  ordered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE radiology_results (                   -- ER: Radiology Result
+  result_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  rad_order_id BIGINT NOT NULL UNIQUE REFERENCES radiology_orders(rad_order_id),
+  findings TEXT NOT NULL,
+  snomed_code TEXT NOT NULL,
+  report_file TEXT NOT NULL DEFAULT '',
+  reported_by TEXT NOT NULL,
+  report_date TIMESTAMPTZ NOT NULL DEFAULT now(),
+  charge_id BIGINT REFERENCES charges(charge_id)
+);
+
+CREATE TABLE procedure_orders (                    -- ER: Procedure Order
+  proc_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  prescription_id BIGINT NOT NULL REFERENCES prescriptions(prescription_id),
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  service_code TEXT NOT NULL REFERENCES procedure_catalog(service_code),
+  snomed_code TEXT NOT NULL,
+  outsourced BOOLEAN NOT NULL DEFAULT false,
+  status TEXT NOT NULL DEFAULT 'ORDERED' CHECK (status IN ('ORDERED','PERFORMED','CANCELLED')),
+  ordered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE procedures_performed (                -- ER: Procedure Performed
+  proc_perf_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  proc_order_id BIGINT NOT NULL UNIQUE REFERENCES procedure_orders(proc_order_id),
+  snomed_code TEXT NOT NULL,
+  outcome_notes TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'COMPLETED',
+  performed_by TEXT NOT NULL,
+  performed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  charge_id BIGINT REFERENCES charges(charge_id)
+);
+
+CREATE TABLE pharmacy_orders (                     -- ER: Pharmacy Order
+  pharm_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  prescription_id BIGINT NOT NULL REFERENCES prescriptions(prescription_id),
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  item_code TEXT NOT NULL REFERENCES pharmacy_items(item_code),
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  instruction TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'ORDERED' CHECK (status IN ('ORDERED','PARTIAL','DISPENSED','CANCELLED')),
+  ordered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE dispenses (                           -- ER: Medication Issue
   dispense_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  pharm_order_id BIGINT NOT NULL REFERENCES pharmacy_orders(pharm_order_id),
   encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
   item_code TEXT NOT NULL REFERENCES pharmacy_items(item_code),
   batch_id BIGINT NOT NULL REFERENCES stock_batches(batch_id),
   charge_id BIGINT NOT NULL UNIQUE REFERENCES charges(charge_id),
   quantity INTEGER NOT NULL CHECK (quantity > 0),
-  prescription_ref TEXT NOT NULL DEFAULT '',
+  dispensed_by TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS preauths (
-  preauth_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+CREATE TABLE room_stays (                          -- ER: Registration "admits" Ward (with dates)
+  room_stay_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
-  coverage_id TEXT NOT NULL REFERENCES coverages(coverage_id),
-  request_type TEXT NOT NULL DEFAULT 'INITIAL' CHECK (request_type IN ('INITIAL','ENHANCEMENT')),
-  requested_paise BIGINT NOT NULL CHECK (requested_paise > 0),
-  approved_paise BIGINT NOT NULL DEFAULT 0 CHECK (approved_paise >= 0),
-  status TEXT NOT NULL DEFAULT 'SUBMITTED_DEMO',
-  reference_no TEXT NOT NULL DEFAULT '',
+  ward_id TEXT NOT NULL REFERENCES wards(ward_id),
+  start_date DATE NOT NULL,
+  end_date DATE,
+  charge_id BIGINT REFERENCES charges(charge_id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  decided_at TIMESTAMPTZ
+  CHECK (end_date IS NULL OR end_date > start_date)
 );
+ALTER TABLE charges ADD COLUMN room_stay_id BIGINT REFERENCES room_stays(room_stay_id);
 
-CREATE TABLE IF NOT EXISTS invoices (
+-- Billing and payer ---------------------------------------------------------
+
+CREATE TABLE invoices (                            -- ER: Bill
   invoice_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   encounter_id TEXT NOT NULL UNIQUE REFERENCES encounters(encounter_id),
   invoice_no TEXT NOT NULL UNIQUE,
-  subtotal_paise BIGINT NOT NULL CHECK (subtotal_paise >= 0),
-  tax_paise BIGINT NOT NULL CHECK (tax_paise >= 0),
+  subtotal_paise BIGINT NOT NULL,
+  tax_paise BIGINT NOT NULL,
+  discount_paise BIGINT NOT NULL DEFAULT 0 CHECK (discount_paise >= 0),
   total_paise BIGINT NOT NULL CHECK (total_paise >= 0),
-  advance_allocated_paise BIGINT NOT NULL DEFAULT 0 CHECK (advance_allocated_paise >= 0),
+  patient_share_paise BIGINT NOT NULL CHECK (patient_share_paise >= 0),
+  payer_share_paise BIGINT NOT NULL CHECK (payer_share_paise >= 0),
+  status TEXT NOT NULL DEFAULT 'FINAL' CHECK (status IN ('FINAL')),
+  due_date DATE NOT NULL,
   issued_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_share_paise BIGINT NOT NULL DEFAULT 0
-  CHECK (patient_share_paise >= 0);
-ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payer_share_paise BIGINT NOT NULL DEFAULT 0
-  CHECK (payer_share_paise >= 0);
 
-CREATE TABLE IF NOT EXISTS invoice_lines (
+CREATE TABLE invoice_lines (                       -- ER: Bill Line (weak entity of Bill)
   invoice_line_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   invoice_id BIGINT NOT NULL REFERENCES invoices(invoice_id),
+  line_no INTEGER NOT NULL,
   charge_id BIGINT NOT NULL UNIQUE REFERENCES charges(charge_id),
+  charge_type TEXT NOT NULL,
   description TEXT NOT NULL,
   department TEXT NOT NULL,
   quantity INTEGER NOT NULL,
@@ -258,47 +390,80 @@ CREATE TABLE IF NOT EXISTS invoice_lines (
   tax_rate_bps INTEGER NOT NULL,
   tax_paise BIGINT NOT NULL,
   total_paise BIGINT NOT NULL,
-  hsn_sac TEXT NOT NULL
+  hsn_sac TEXT NOT NULL,
+  UNIQUE (invoice_id, line_no)
 );
 
-CREATE TABLE IF NOT EXISTS claims (
+CREATE TABLE preauths (                            -- workflow: Pre-authorisation
+  preauth_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  coverage_id TEXT NOT NULL REFERENCES coverages(coverage_id),
+  request_type TEXT NOT NULL DEFAULT 'INITIAL' CHECK (request_type IN ('INITIAL','ENHANCEMENT')),
+  requested_paise BIGINT NOT NULL CHECK (requested_paise > 0),
+  approved_paise BIGINT NOT NULL DEFAULT 0 CHECK (approved_paise >= 0),
+  status TEXT NOT NULL DEFAULT 'SUBMITTED' CHECK (status IN ('SUBMITTED','APPROVED','REJECTED')),
+  reference_no TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at TIMESTAMPTZ
+);
+
+CREATE TABLE claims (                              -- ER: Insurance Claim
   claim_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  invoice_id BIGINT NOT NULL UNIQUE REFERENCES invoices(invoice_id),
+  invoice_id BIGINT NOT NULL REFERENCES invoices(invoice_id),
+  attempt_no INTEGER NOT NULL DEFAULT 1,
+  parent_claim_id BIGINT REFERENCES claims(claim_id),
   coverage_id TEXT NOT NULL REFERENCES coverages(coverage_id),
   preauth_id BIGINT REFERENCES preauths(preauth_id),
-  status TEXT NOT NULL DEFAULT 'SUBMITTED_DEMO',
+  status TEXT NOT NULL DEFAULT 'SUBMITTED' CHECK (status IN ('SUBMITTED','APPROVED','PARTIAL','REJECTED')),
   submitted_paise BIGINT NOT NULL CHECK (submitted_paise > 0),
   approved_paise BIGINT NOT NULL DEFAULT 0 CHECK (approved_paise >= 0),
+  rejection_reason TEXT NOT NULL DEFAULT '',
   diagnosis_code TEXT NOT NULL DEFAULT '',
   procedure_code TEXT NOT NULL DEFAULT '',
   discharge_summary TEXT NOT NULL DEFAULT '',
   documents JSONB NOT NULL DEFAULT '{}'::jsonb,
   reference_no TEXT NOT NULL DEFAULT '',
   submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  decided_at TIMESTAMPTZ
+  decided_at TIMESTAMPTZ,
+  UNIQUE (invoice_id, attempt_no)
 );
-ALTER TABLE claims ADD COLUMN IF NOT EXISTS procedure_code TEXT NOT NULL DEFAULT '';
 
-CREATE TABLE IF NOT EXISTS advances (
+CREATE TABLE balance_adjustments (                 -- claim shortfall moved to patient or written off
+  adjustment_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  invoice_id BIGINT NOT NULL REFERENCES invoices(invoice_id),
+  claim_id BIGINT REFERENCES claims(claim_id),
+  kind TEXT NOT NULL CHECK (kind IN ('TO_PATIENT','WRITE_OFF')),
+  amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),
+  reason TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE advances (                            -- workflow: Deposit
   advance_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
   amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),
   method TEXT NOT NULL,
   reference_no TEXT NOT NULL DEFAULT '',
+  received_by TEXT NOT NULL DEFAULT '',
   received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS receipts (
+CREATE TABLE receipts (                            -- ER: Payment
   receipt_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   invoice_id BIGINT NOT NULL REFERENCES invoices(invoice_id),
   payer_kind TEXT NOT NULL CHECK (payer_kind IN ('PATIENT','INSURER','SCHEME','CORPORATE')),
   amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),
   method TEXT NOT NULL,
   reference_no TEXT NOT NULL DEFAULT '',
-  received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  status TEXT NOT NULL DEFAULT 'SUCCEEDED' CHECK (status IN ('PENDING','SUCCEEDED','FAILED','TIMEOUT')),
+  attempt_no INTEGER NOT NULL DEFAULT 1,
+  retry_of BIGINT REFERENCES receipts(receipt_id),
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  settled_at TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS refunds (
+CREATE TABLE refunds (
   refund_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
   amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),
@@ -307,8 +472,22 @@ CREATE TABLE IF NOT EXISTS refunds (
   refunded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS audit_events (
+CREATE TABLE notifications (                       -- workflow: Reminder engine / Patient notification
+  notification_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  patient_id TEXT NOT NULL REFERENCES patients(patient_id),
+  encounter_id TEXT REFERENCES encounters(encounter_id),
+  invoice_id BIGINT REFERENCES invoices(invoice_id),
+  appointment_id BIGINT REFERENCES appointments(appointment_id),
+  kind TEXT NOT NULL CHECK (kind IN ('APPOINTMENT','REMINDER','SETTLED','CLAIM')),
+  channel TEXT NOT NULL DEFAULT 'SMS (simulated)',
+  message TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT 'system',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE audit_events (
   audit_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  actor TEXT NOT NULL DEFAULT 'system',
   action TEXT NOT NULL,
   entity TEXT NOT NULL,
   entity_id TEXT NOT NULL,
@@ -316,10 +495,10 @@ CREATE TABLE IF NOT EXISTS audit_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_charges_encounter ON charges(encounter_id);
-CREATE INDEX IF NOT EXISTS idx_invoices_issued ON invoices(issued_at);
-CREATE INDEX IF NOT EXISTS idx_receipts_invoice ON receipts(invoice_id);
-CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
-CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_notes_encounter ON clinical_notes(encounter_id,created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_rx_encounter ON prescriptions(encounter_id,created_at DESC);
+CREATE INDEX idx_charges_encounter ON charges(encounter_id);
+CREATE INDEX idx_invoices_issued ON invoices(issued_at);
+CREATE INDEX idx_receipts_invoice ON receipts(invoice_id);
+CREATE INDEX idx_claims_invoice ON claims(invoice_id);
+CREATE INDEX idx_audit_entity ON audit_events(entity, entity_id);
+CREATE INDEX idx_audit_created ON audit_events(created_at DESC);
+CREATE INDEX idx_notifications_patient ON notifications(patient_id, created_at DESC);

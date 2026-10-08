@@ -1,194 +1,139 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import DataMap from "./DataMap";
+import Billing from "./desks/Billing";
+import Diagnostics from "./desks/Diagnostics";
+import Doctor from "./desks/Doctor";
+import Pharmacy from "./desks/Pharmacy";
+import Reception from "./desks/Reception";
+import { Ctx, Row, Staff, Tag, api, deskTitle, initials, payerText, post, roles, statusTone } from "./lib";
 
-type Row = Record<string, any>;
-type Staff = { username: string; display_name: string; role: "ADMIN" | "DOCTOR" | "LAB" | "PHARMACY" };
-const demoPatient = "P-DEMO-09";
-const roles = [
-  { id: "admin", name: "Billing", task: "Account and invoice", icon: "₹" },
-  { id: "doctor", name: "Doctor", task: "Encounter and orders", icon: "+" },
-  { id: "lab", name: "Laboratory", task: "Test result", icon: "L" },
-  { id: "pharmacy", name: "Pharmacy", task: "Dispense medicine", icon: "Rx" },
-];
-const money = (n?: number) => `₹${((n || 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const dateText = (s?: string) => s ? new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "";
-const today = (days = 0) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+const FIRST_PATIENT = "P-DEMO-09";
 
-async function api(path: string, init: RequestInit = {}) {
-  const token = typeof window === "undefined" ? "" : sessionStorage.getItem("tiveri_token") || "";
-  const response = await fetch(`/api${path}`, { cache: "no-store", ...init,
-    headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers } });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.detail || `Request failed (${response.status})`);
-  return body;
-}
-const post = (path: string, body: Row) => api(path, { method: "POST", body: JSON.stringify(body) });
-function Tag({ children, tone = "blue" }: { children: React.ReactNode; tone?: string }) { return <span className={`p-tag ${tone}`}>{children}</span>; }
-function Card({ title, sub, icon, children, wide = false }: { title: string; sub: string; icon: string; children: React.ReactNode; wide?: boolean }) {
-  return <section className={`p-card ${wide ? "p-wide" : ""}`}><div className="p-card-head"><span className="p-card-icon">{icon}</span><div><h3>{title}</h3><small>{sub}</small></div></div>{children}</section>;
+function steps(detail: Row) {
+  const enc = detail.encounter || {};
+  const orders = [...(detail.lab_orders || []), ...(detail.radiology_orders || [])];
+  const pharm = detail.pharmacy_orders || [];
+  const rx = (detail.prescriptions || []).length > 0;
+  const done = (s: string) => ["COMPLETED", "PERFORMED", "DISPENSED", "CANCELLED"].includes(s);
+  return [
+    { name: "Registration", note: enc.encounter_id ? enc.setting : "Check in", ok: !!enc.encounter_id },
+    { name: "Doctor", note: (detail.prescriptions || []).length ? "Orders sent" : (detail.consultations || []).length ? "Consulted" : "Waiting", ok: (detail.prescriptions || []).length > 0 },
+    { name: "Diagnostics", note: orders.length ? `${orders.filter(o => done(o.status)).length}/${orders.length} done` : "Not needed", ok: rx && orders.every(o => done(o.status)) },
+    { name: "Pharmacy", note: pharm.length ? `${pharm.filter((o: Row) => done(o.status)).length}/${pharm.length} done` : "Not needed", ok: rx && pharm.every((o: Row) => done(o.status)) },
+    { name: "Discharge", note: enc.status === "OPEN" ? "Visit open" : enc.status ? "Done" : "—", ok: ["DISCHARGED", "BILLED"].includes(enc.status) },
+    { name: "Bill", note: detail.invoice?.invoice_no || (enc.status === "DISCHARGED" ? "Audit next" : "—"), ok: !!detail.invoice },
+    { name: "Payer", note: enc.payment_mode === "CASHLESS" ? (detail.claims || []).slice(-1)[0]?.status || (detail.invoice ? "Claim next" : "—") : "Self-pay", ok: enc.payment_mode !== "CASHLESS" ? !!detail.invoice : ["APPROVED", "PARTIAL"].includes((detail.claims || []).slice(-1)[0]?.status) },
+    { name: "Settled", note: detail.payment_status === "PAID" ? "Paid" : detail.invoice ? "Outstanding" : "—", ok: detail.payment_status === "PAID" },
+  ];
 }
 
 export default function Home() {
   const [user, setUser] = useState<Staff | null>(null);
-  const [loginRole, setLoginRole] = useState("admin");
+  const [loginRole, setLoginRole] = useState("reception");
   const [password, setPassword] = useState("Demo@1234");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [selected, setSelected] = useState(demoPatient);
+  const [selected, setSelected] = useState(FIRST_PATIENT);
   const [patients, setPatients] = useState<Row[]>([]);
   const [record, setRecord] = useState<Row>({});
   const [detail, setDetail] = useState<Row>({});
-  const [stock, setStock] = useState<Row>({ items: [] });
-  const [labQueue, setLabQueue] = useState<Row>({ orders: [] });
-  const [note, setNote] = useState("Known type 2 diabetes without documented complications. Admitted for short observation after repeated high glucose readings. HbA1c requested and treatment plan reviewed.");
-  const [medicineQty, setMedicineQty] = useState(10);
-  const [result, setResult] = useState("7.2");
-  const [dispenseQty, setDispenseQty] = useState(10);
-  const [roomCode, setRoomCode] = useState("PRIVATE_ROOM");
-  const [roomStart, setRoomStart] = useState(today());
-  const [roomEnd, setRoomEnd] = useState(today(1));
-  const [invoiceOpen, setInvoiceOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState("UPI");
-  const [paymentMode, setPaymentMode] = useState("SELF");
-  const [payerLabel, setPayerLabel] = useState("Alpha TPA");
-  const [memberRef, setMemberRef] = useState("SYN-POL-ASH-01");
-  const [copayPercent, setCopayPercent] = useState(0);
-  const [taxReport, setTaxReport] = useState<Row | null>(null);
+  const [catalog, setCatalog] = useState<Row>({});
+  const [visit, setVisit] = useState("");
+  const [view, setView] = useState<"desk" | "map">("desk");
 
-  const refresh = useCallback(async (patientId: string) => {
-    const [directory, patient, inventory, lab] = await Promise.all([
-      api("/patients"), api(`/patients/${patientId}`), api("/pharmacy/stock"), api("/lab/queue")]);
-    setPatients(directory.patients || []); setRecord(patient); setStock(inventory); setLabQueue(lab);
-    const plan = patient.admission_plan;
-    setPaymentMode(plan?.payment_mode || (plan?.payer_route === "PRIVATE" ? "CASHLESS" : "SELF"));
-    setPayerLabel(plan?.payer_route === "PRIVATE" ? plan.payer_label : "Alpha TPA");
-    setMemberRef(plan?.member_ref || "SYN-POL-ASH-01");
-    setCopayPercent(plan?.payer_route === "PRIVATE" ? plan.copay_bps / 100 : 0);
-    setDetail(patient.encounters?.[0] ? await api(`/encounters/${patient.encounters[0].encounter_id}`) : {});
+  const refresh = useCallback(async (patientId: string, encounterId = "") => {
+    const [directory, patient] = await Promise.all([api("/patients"), api(`/patients/${patientId}`)]);
+    setPatients(directory.patients || []); setRecord(patient);
+    const eid = encounterId && patient.encounters?.some((e: Row) => e.encounter_id === encounterId) ? encounterId : patient.encounters?.[0]?.encounter_id || "";
+    setVisit(eid);
+    setDetail(eid ? await api(`/encounters/${eid}`) : {});
   }, []);
+
   useEffect(() => {
-    const saved = sessionStorage.getItem("tiveri_patient_id") || demoPatient;
+    const saved = sessionStorage.getItem("tiveri_patient_id") || FIRST_PATIENT;
     setSelected(saved);
     if (!sessionStorage.getItem("tiveri_token")) { setLoading(false); return; }
-    api("/auth/me").then(async (staff: Staff) => { await refresh(saved); setUser(staff); })
+    api("/auth/me").then(async (staff: Staff) => { setCatalog(await api("/catalog")); await refresh(saved).catch(() => refresh(FIRST_PATIENT)); setUser(staff); })
       .catch(() => { sessionStorage.removeItem("tiveri_token"); setUser(null); }).finally(() => setLoading(false));
   }, [refresh]);
-  useEffect(() => { if (invoiceOpen) requestAnimationFrame(() => document.getElementById("generated-invoice")?.scrollIntoView({ behavior: "smooth" })); }, [invoiceOpen]);
 
   async function login() {
     setBusy(true); setError(""); setNotice("");
-    try { const response = await post("/auth/login", { username: loginRole, password }); sessionStorage.setItem("tiveri_token", response.token); await refresh(selected); setUser(response.user); }
-    catch (cause) { sessionStorage.removeItem("tiveri_token"); setError((cause as Error).message); } finally { setBusy(false); }
+    try {
+      const response = await post("/auth/login", { username: loginRole, password });
+      sessionStorage.setItem("tiveri_token", response.token);
+      setCatalog(await api("/catalog"));
+      await refresh(selected).catch(() => refresh(FIRST_PATIENT));
+      setUser(response.user);
+    } catch (cause) { sessionStorage.removeItem("tiveri_token"); setError((cause as Error).message); } finally { setBusy(false); }
   }
-  async function logout() { await api("/auth/logout", { method: "POST" }).catch(() => {}); sessionStorage.removeItem("tiveri_token"); setUser(null); setInvoiceOpen(false); setNotice(""); setError(""); }
-  async function choose(patientId: string) { setSelected(patientId); sessionStorage.setItem("tiveri_patient_id", patientId); setInvoiceOpen(false); setError(""); setNotice(""); try { await refresh(patientId); } catch (cause) { setError((cause as Error).message); } }
-  async function act(label: string, path: string, payload: Row) { setBusy(true); setError(""); setNotice(""); try { await post(path, payload); await refresh(selected); setNotice(label); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); } }
-  async function generateInvoice() { setBusy(true); setError(""); try { await post("/invoices", { encounter_id: encounter.encounter_id }); await refresh(selected); setInvoiceOpen(true); setNotice("Itemised invoice generated below."); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); } }
-  async function resetDemo() { setBusy(true); setError(""); try { await post("/demo/reset", {}); sessionStorage.removeItem("tiveri_token"); sessionStorage.setItem("tiveri_patient_id", demoPatient); setSelected(demoPatient); setRecord({}); setDetail({}); setPaymentMode("SELF"); setPayerLabel("Alpha TPA"); setMemberRef("SYN-POL-ASH-01"); setCopayPercent(0); setUser(null); setInvoiceOpen(false); setTaxReport(null); setNotice("Synthetic cases restored. Sign in to begin again."); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); } }
+  async function logout() { await api("/auth/logout", { method: "POST" }).catch(() => {}); sessionStorage.removeItem("tiveri_token"); setUser(null); setNotice(""); setError(""); }
+  const choose = useCallback(async (patientId: string) => {
+    setSelected(patientId); sessionStorage.setItem("tiveri_patient_id", patientId); setError(""); setNotice("");
+    try { await refresh(patientId); } catch (cause) { setError((cause as Error).message); }
+  }, [refresh]);
+  const act = useCallback(async (label: string, path: string, payload: Row = {}) => {
+    setBusy(true); setError(""); setNotice("");
+    try { const result = await post(path, payload); await refresh(selected, visit); setNotice(label); return result; }
+    catch (cause) { setError((cause as Error).message); return null; } finally { setBusy(false); }
+  }, [refresh, selected, visit]);
+  const load = useCallback(async (path: string) => { try { return await api(path); } catch (cause) { setError((cause as Error).message); return null; } }, []);
+  async function resetDemo() {
+    setBusy(true); setError("");
+    try { await post("/demo/reset", {}); sessionStorage.removeItem("tiveri_token"); sessionStorage.setItem("tiveri_patient_id", FIRST_PATIENT); setSelected(FIRST_PATIENT); setUser(null); setNotice("Demo data restored. Sign in to begin again."); }
+    catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
+  }
 
   if (loading) return <div className="p-loading">Opening the hospital demo…</div>;
-  if (!user) return <main className="p-login"><section className="p-login-story"><div className="p-logo"><span>+</span><b>Tiveri</b><small>HOSPITAL OPERATIONS</small></div><div className="p-login-copy"><div className="p-kicker">DH 308 · LIVE PROJECT</div><h1>One patient.<br />Four connected desks.</h1><p>Follow one hospital admission through doctor assessment, laboratory, pharmacy, bed charges and the final bill.</p><div className="p-steps"><span>01 Doctor</span><i /><span>02 Lab</span><i /><span>03 Pharmacy</span><i /><span>04 Billing</span></div></div><div className="p-login-foot">Synthetic patient and result data · External portals are simulated</div></section><section className="p-login-panel"><div className="p-login-inner"><div className="p-kicker">STAFF ACCESS</div><h2>Sign in for the demo</h2><p>Complete a handoff, sign out and open the next desk. Your selected patient stays in view.</p><div className="p-role-grid">{roles.map(role => <button key={role.id} className={`p-role ${loginRole === role.id ? "selected" : ""}`} onClick={() => setLoginRole(role.id)}><span className="p-role-icon">{role.icon}</span><span><b>{role.name}</b><small>{role.task}</small></span><span>{loginRole === role.id ? "✓" : ""}</span></button>)}</div><label className="p-field">Demo password<input type="password" value={password} onChange={event => setPassword(event.target.value)} onKeyDown={event => { if (event.key === "Enter") login(); }} /></label><div className="p-hint">Password for all roles: <code>Demo@1234</code></div>{error && <div className="p-alert error">{error}</div>}{notice && <div className="p-alert success">{notice}</div>}<button className="p-primary p-signin" disabled={busy} onClick={login}>Continue as {roles.find(role => role.id === loginRole)?.name}<span>↗</span></button></div></section></main>;
+  if (!user) return <main className="p-login">
+    <section className="p-login-story"><div className="p-logo"><span>+</span><b>Tiveri</b><small>HOSPITAL OPERATIONS</small></div>
+      <div className="p-login-copy"><div className="p-kicker">DH 308 · LIVE PROJECT</div><h1>One patient.<br />Five connected desks.</h1>
+        <p>Follow a visit from registration through consultation, diagnostics, pharmacy and discharge to an audited bill, the insurer and the final payment.</p>
+        <div className="p-steps"><span>Reception</span><i /><span>Doctor</span><i /><span>Diagnostics</span><i /><span>Pharmacy</span><i /><span>Billing</span></div></div>
+      <div className="p-login-foot">Synthetic patients and results · Insurer, PM-JAY, SMS and GST portals are simulated</div></section>
+    <section className="p-login-panel"><div className="p-login-inner"><div className="p-kicker">STAFF ACCESS</div><h2>Sign in for the demo</h2>
+      <p>Finish a handoff, sign out, and open the next desk. The selected patient stays in view. Every desk can open the Data map.</p>
+      <div className="p-role-grid">{roles.map(role => <button key={role.id} className={`p-role ${loginRole === role.id ? "selected" : ""}`} onClick={() => setLoginRole(role.id)}><span className="p-role-icon">{role.icon}</span><span><b>{role.name}</b><small>{role.task}</small></span><span>{loginRole === role.id ? "✓" : ""}</span></button>)}</div>
+      <label className="p-field">Demo password<input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => { if (e.key === "Enter") login(); }} /></label>
+      <div className="p-hint">Password for all desks: <code>Demo@1234</code></div>
+      {error && <div className="p-alert error">{error}</div>}{notice && <div className="p-alert success">{notice}</div>}
+      <button className="p-primary p-signin" disabled={busy} onClick={login}>Continue as {roles.find(r => r.id === loginRole)?.name}<span>↗</span></button></div></section>
+  </main>;
 
   const patient = record.patient || {};
-  const encounter = detail.encounter || {};
-  const eid = encounter.encounter_id || "";
-  const notes: Row[] = detail.clinical_notes || [];
-  const labs: Row[] = detail.lab_orders || [];
-  const prescriptions: Row[] = detail.prescriptions || [];
-  const pendingLab = labs.find(order => order.status === "ORDERED");
-  const pendingRx = prescriptions.find(rx => rx.quantity > rx.dispensed_quantity);
-  const medicine = (stock.items || []).find((item: Row) => item.item_code === pendingRx?.item_code);
-  const coverage = detail.coverage || {};
-  const preauth = detail.preauths?.[detail.preauths.length - 1];
-  const claim = detail.claim;
-  const canInvoice = encounter.status === "OPEN" && detail.charges?.length && !pendingLab && !pendingRx &&
-    (selected !== demoPatient || (detail.room_stays || []).length > 0) &&
-    !(encounter.payer_route === "PMJAY" && coverage.eligibility_status !== "VERIFIED_DEMO") &&
-    !(coverage.preauth_required && preauth?.status !== "APPROVED_DEMO");
-  const title = { ADMIN: "Billing desk", DOCTOR: "Doctor desk", LAB: "Laboratory desk", PHARMACY: "Pharmacy desk" }[user.role];
+  const enc = detail.encounter || {};
+  const ctx: Ctx = { user, busy, selected, record, detail, catalog, act, load, choose };
+  const Desk = { RECEPTION: Reception, DOCTOR: Doctor, LAB: Diagnostics, PHARMACY: Pharmacy, ADMIN: Billing }[user.role];
+  const role = roles.find(r => r.role === user.role);
 
-  return <div className="p-shell"><aside className="p-sidebar"><div className="p-logo dark"><span>+</span><b>Tiveri</b></div><div className="p-side-label">SIGNED IN</div><div className="p-side-person"><span>{roles.find(role => role.id === user.username)?.icon}</span><div><b>{title}</b><small>{user.display_name}</small></div></div><div className="p-side-label">PATIENT RECORDS</div><div className="p-side-list">{patients.map(row => <button key={row.patient_id} className={selected === row.patient_id ? "active" : ""} onClick={() => choose(row.patient_id)}><span className="p-avatar">{row.display_label?.split(" ").map((part: string) => part[0]).join("")}</span><span><b>{row.display_label}</b><small>{row.patient_id}{row.patient_id === demoPatient ? " · live case" : ""}</small></span></button>)}</div><div className="p-sidebar-foot"><span className="p-dot" /> PostgreSQL connected <button onClick={logout}>Sign out ↗</button></div></aside><main className="p-main"><header className="p-topbar"><div><div className="p-kicker">DH 308 · HIS AND BILLING</div><h1>{title}</h1></div><div className="p-topright"><Tag tone="green">Live demo</Tag><span>{user.display_name}<small>{user.role.toLowerCase()}</small></span>{user.role === "ADMIN" && <button onClick={resetDemo} disabled={busy}>Reset demo</button>}<button className="p-top-signout" onClick={logout}>Sign out</button></div></header><div className="p-content">{error && <div className="p-alert error">{error}<button onClick={() => setError("")}>×</button></div>}{notice && <div className="p-alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
-    <section className="p-patient"><div className="p-patient-top"><div><div className="p-kicker">PATIENT RECORD · {patient.patient_id}</div><h2>{patient.display_label || "Choose a patient"}</h2><p>{patient.age_years} years · {patient.sex} · {patient.city} · {patient.contact_masked}</p></div><div className="p-patient-tags">{eid ? <><Tag>{encounter.setting === "IPD" ? encounter.status === "BILLED" ? "Discharged" : "Admitted" : "Visit"}</Tag><Tag tone={encounter.status === "OPEN" ? "amber" : "green"}>{encounter.status}</Tag></> : <Tag tone="amber">Ready for encounter</Tag>}</div></div><div className="p-patient-facts"><div><small>Patient ID</small><b>{patient.patient_id}</b></div><div><small>Blood group</small><b>{patient.blood_group || "Not recorded"}</b></div><div><small>Allergies</small><b>{patient.allergies || "Not recorded"}</b></div><div><small>Encounter</small><b>{eid || "Not started"}</b></div></div></section>
-    <div className="p-workflow"><div><span className={notes.length ? "done" : ""}>1</span><b>Doctor</b><small>{notes.length ? "Assessment saved" : "Assessment pending"}</small></div><div><span className={labs.some(order => order.status === "COMPLETED") ? "done" : ""}>2</span><b>Lab</b><small>{pendingLab ? "Test ordered" : labs.length ? "Result recorded" : "Awaiting order"}</small></div><div><span className={detail.dispenses?.length ? "done" : ""}>3</span><b>Pharmacy</b><small>{pendingRx ? "Prescription waiting" : detail.dispenses?.length ? "Dispensed" : "Awaiting order"}</small></div><div><span className={detail.invoice ? "done" : ""}>4</span><b>Billing</b><small>{detail.invoice ? "Invoice generated" : "Running bill"}</small></div></div>
-    <div className="p-intro"><div><div className="p-kicker">SHARED PATIENT RECORD</div><h2>{user.role === "DOCTOR" ? "Assessment and orders" : user.role === "LAB" ? "Laboratory worklist" : user.role === "PHARMACY" ? "Prescription and stock" : "Charges and invoice"}</h2></div><p>{user.role === "DOCTOR" ? "Confirm the prepared case before you start the admission." : user.role === "LAB" ? "The doctor order appears here. Completing it posts a lab charge once." : user.role === "PHARMACY" ? "Dispense against the prescription and available stock." : "Each completed service appears automatically on this account."}</p></div>
-    {user.role === "ADMIN" && !eid && selected === demoPatient &&
-      <Card title="Payment route" sub="Choose before the admission starts" icon="₹" wide>
-        <div className="p-payer-choices">
-          <button className={paymentMode === "SELF" ? "selected" : ""} onClick={() => setPaymentMode("SELF")}>
-            <b>Self-pay</b><span>The patient pays the final bill.</span>
-          </button>
-          <button className={paymentMode === "CASHLESS" ? "selected" : ""} onClick={() => setPaymentMode("CASHLESS")}>
-            <b>Cashless claim</b><span>The insurer pays covered charges after approval.</span>
-          </button>
-          <button className={paymentMode === "REIMBURSEMENT" ? "selected" : ""} onClick={() => setPaymentMode("REIMBURSEMENT")}>
-            <b>Reimbursement claim</b><span>The patient pays now and claims from the insurer later.</span>
-          </button>
-        </div>
-        {paymentMode === "CASHLESS" && <div className="p-payer-fields">
-          <label className="p-field">Demo insurer / TPA<select value={payerLabel} onChange={event => setPayerLabel(event.target.value)}><option>Alpha TPA</option><option>Bharat TPA</option><option>City TPA</option></select></label>
-          <label className="p-field">Synthetic policy reference<input value={memberRef} onChange={event => setMemberRef(event.target.value)} maxLength={60} /></label>
-          <label className="p-field">Patient co-pay<select value={copayPercent} onChange={event => setCopayPercent(Number(event.target.value))}><option value={0}>No co-pay</option><option value={10}>10% of eligible bill</option><option value={20}>20% of eligible bill</option></select></label>
-        </div>}
-        {paymentMode === "CASHLESS" && <p className="p-fineprint">With no co-pay, the patient owes nothing for covered charges in this example. Excluded expenses may still be paid by the patient.</p>}
-        <div className="p-payer-saved">Saved route: {record.admission_plan?.payment_mode === "REIMBURSEMENT" ? "Reimbursement claim" : record.admission_plan?.payer_route === "PRIVATE" ? `Cashless with ${record.admission_plan.payer_label} and ${record.admission_plan.copay_bps / 100}% co-pay` : "Self-pay"}</div>
-        <button className="p-primary" disabled={busy || (paymentMode === "CASHLESS" && !memberRef.trim())} onClick={() => act("Payment route saved. The doctor can now start the admission.", `/admission-plans/${selected}`, { payer_route: paymentMode === "CASHLESS" ? "PRIVATE" : "SELF", payment_mode: paymentMode, payer_label: payerLabel, member_ref: memberRef, copay_percent: copayPercent })}>Save payment route</button>
-        <p className="p-fineprint">The route and rate card are fixed when the doctor starts this synthetic admission. Reset the demo to choose another route afterward.</p>
-      </Card>}
-    <div className="p-grid"><Card title="Clinical history" sub="Synthetic patient information" icon="H"><p className="p-history">{patient.history_summary || "No history entered for this synthetic patient."}</p>{notes.length > 0 && <><div className="p-mini-heading">Doctor assessment</div>{notes.slice(0, 2).map(n => <div className="p-note" key={n.note_id}><b>{dateText(n.created_at)} · {n.author_username}</b><p>{n.note_text}</p><small>ICD-10 {n.provisional_icd_code || "—"} · CPT {n.procedure_code || "—"} reference</small></div>)}</>}{labs.length > 0 && <><div className="p-mini-heading">Laboratory</div>{labs.map(order => <div className="p-note" key={order.lab_order_id}><b>{order.description} · LOINC {order.loinc_code}</b><p>{order.status === "COMPLETED" ? `Result: ${order.result_value}${order.result_unit} · ${dateText(order.completed_at)}` : "Ordered by doctor. Result pending."}</p></div>)}</>}</Card>
-    {user.role === "DOCTOR" && !eid && selected === demoPatient && <Card title="Create the admission" sub="One-day observation case" icon="+"><div className="p-payer-saved">Billing route: {record.admission_plan?.payment_mode === "REIMBURSEMENT" ? "Reimbursement claim" : record.admission_plan?.payer_route === "PRIVATE" ? `Cashless with ${record.admission_plan.payer_label} and ${record.admission_plan.copay_bps / 100}% co-pay` : "Self-pay"}</div><label className="p-field">Encounter note<textarea rows={4} value={note} onChange={event => setNote(event.target.value)} /></label><div className="p-code-grid"><div><small>Diagnosis</small><b>ICD-10 E11.9</b><span>Type 2 diabetes without complications</span></div><div><small>Lab observation</small><b>LOINC 4548-4</b><span>HbA1c in blood</span></div><div><small>Procedure reference</small><b>CPT 83036</b><span>Optional, not the local tariff</span></div><div><small>Local billing</small><b>CONSULT + HBA1C</b><span>₹500 now; ₹650 after lab</span></div></div><label className="p-field">Metformin 500 mg training tablets<input type="number" min="1" max="100" value={medicineQty} onChange={event => setMedicineQty(Number(event.target.value))} /></label><p className="p-fineprint">You confirm this fixed teaching pathway. The software does not diagnose from free text. Medicine details are synthetic.</p><button className="p-primary" disabled={busy || note.trim().length < 15 || medicineQty < 1} onClick={() => act("Admission recorded. Lab and pharmacy orders are ready.", "/clinical/demo-encounters", { patient_id: selected, case_code: "DIABETES_OBSERVATION", note_text: note, medicine_item_code: "MED-M", medicine_quantity: medicineQty, instruction: "Existing plan reviewed by the doctor. Synthetic demonstration only." })}>Create admission and send orders</button></Card>}
-    {user.role === "DOCTOR" && eid && <Card title="Admission recorded" sub="Orders sent to lab and pharmacy" icon="✓"><div className="p-review"><small>{encounter.setting === "IPD" ? "ADMISSION" : "VISIT"}</small><b>{eid}</b><span>ICD-10 {notes[0]?.provisional_icd_code || "—"} · CPT {notes[0]?.procedure_code || "—"} reference</span></div><div className="p-summary-list"><div><span>Doctor assessment</span><b>{detail.charges?.some((charge: Row) => charge.service_code === "CONSULT") ? "Charged" : "Pending"}</b></div><div><span>HbA1c</span><b>{labs[0]?.status || "Not ordered"}</b></div><div><span>Medicine</span><b>{prescriptions[0] ? `${prescriptions[0].quantity} tablets ordered` : "Not ordered"}</b></div></div></Card>}
-    {user.role === "LAB" && <Card title="Ordered test" sub="Result and HIS charge" icon="L">{pendingLab ? <><div className="p-review"><small>ORDER #{pendingLab.lab_order_id}</small><b>{pendingLab.description}</b><span>LOINC {pendingLab.loinc_code} · Blood · local service {pendingLab.service_code}</span></div><label className="p-field">Synthetic HbA1c result (%)<input type="number" min="0.1" max="29.9" step="0.1" value={result} onChange={event => setResult(event.target.value)} /></label><button className="p-primary" disabled={busy || !Number(result)} onClick={() => act("Lab result recorded. HbA1c charge posted.", `/lab/orders/${pendingLab.lab_order_id}/complete`, { result_value: Number(result) })}>Complete test and post charge</button><p className="p-fineprint">LOINC identifies the observation. HBA1C is the hospital billing code. CPT 83036 is an optional reference.</p></> : labs.length ? <div className="p-review"><small>TEST COMPLETE</small><b>{labs[0].description}</b><span>LOINC {labs[0].loinc_code} · {labs[0].result_value}{labs[0].result_unit} · charge posted once</span></div> : <p className="p-history">No test has been ordered for this patient. Select Asha Kulkarni after the doctor starts her admission.</p>}{labQueue.orders?.filter((order: Row) => order.status === "ORDERED").length > 0 && <p className="p-fineprint">Pending lab orders across the demo: {labQueue.orders.filter((order: Row) => order.status === "ORDERED").length}.</p>}</Card>}
-    {user.role === "PHARMACY" && <Card title="Prescription" sub="Dispense from the stocked batch" icon="Rx">{pendingRx ? <><div className="p-review"><small>{pendingRx.prescription_ref}</small><b>{medicine?.description || pendingRx.item_code}</b><span>{pendingRx.quantity - pendingRx.dispensed_quantity} to dispense · {encounter.setting === "IPD" ? "part of admitted-patient care" : `${medicine?.tax_rate_bps / 100}% GST on separate sale`} · HSN {medicine?.hsn_code}</span></div><p className="p-fineprint">{pendingRx.instruction}</p><label className="p-field">Quantity to dispense<input type="number" min="1" max={pendingRx.quantity - pendingRx.dispensed_quantity} value={dispenseQty} onChange={event => setDispenseQty(Number(event.target.value))} /></label><button className="p-primary" disabled={busy || dispenseQty < 1 || dispenseQty > pendingRx.quantity - pendingRx.dispensed_quantity} onClick={() => act("Medicine dispensed. Stock and bill updated.", "/pharmacy/dispense", { encounter_id: eid, item_code: pendingRx.item_code, quantity: dispenseQty, prescription_ref: pendingRx.prescription_ref, source_event_id: `DISP-${crypto.randomUUID()}` })}>Dispense medicine</button></> : detail.dispenses?.length ? <div className="p-review"><small>DISPENSED</small><b>{detail.dispenses.length} stock transaction(s)</b><span>Charge now visible at the billing desk.</span></div> : <p className="p-history">No prescription for this patient yet. The doctor creates it with the encounter.</p>}</Card>}
-    {user.role === "ADMIN" && <Card title="Billing review" sub="One running account" icon="₹">{eid ? <><div className="p-summary-list"><div><span>Payment route</span><b>{record.admission_plan?.payment_mode === "REIMBURSEMENT" && selected === demoPatient ? "Reimbursement claim" : encounter.payer_route === "PRIVATE" ? `Cashless · ${encounter.payer_label}` : encounter.payer_route === "SELF" ? "Self-pay" : encounter.payer_label}</b></div><div><span>Diagnosis</span><b>{notes[0]?.provisional_icd_code || "Pending"}</b></div><div><span>Lab test</span><b>{pendingLab ? "Awaiting lab" : labs.length ? "Completed" : "None"}</b></div><div><span>Medicine</span><b>{pendingRx ? "Awaiting pharmacy" : detail.dispenses?.length ? "Dispensed" : "None"}</b></div><div><span>Bed / room</span><b>{detail.room_stays?.length ? "Stay charged" : encounter.setting === "IPD" ? "Awaiting stay" : "Not needed"}</b></div></div><p className="p-fineprint">Doctor assessment, completed lab work, dispensed treatment and recorded room days create charges. A diagnosis has no price.</p></> : <p className="p-history">This patient is already registered. Save the payment route above, then sign in as doctor to start the admission.</p>}</Card>}
-    </div>
-    {user.role === "ADMIN" && encounter.setting === "IPD" && encounter.status === "OPEN" && <Card title="Bed and room charges" sub="Add the stay to this running bill" icon="B" wide><div className="p-room-options"><button className={roomCode === "WARD" ? "selected" : ""} onClick={() => setRoomCode("WARD")}><span>General ward</span><b>₹2,300 / day</b><small>Exempt example</small></button><button className={roomCode === "PRIVATE_ROOM" ? "selected" : ""} onClick={() => setRoomCode("PRIVATE_ROOM")}><span>Private non-ICU room</span><b>₹6,000 / day</b><small>5% GST, subject to conditions</small></button></div><div className="p-two-fields"><label className="p-field">From<input type="date" value={roomStart} onChange={event => setRoomStart(event.target.value)} /></label><label className="p-field">Checkout date<input type="date" value={roomEnd} onChange={event => setRoomEnd(event.target.value)} /></label></div><button className="p-secondary" disabled={busy} onClick={() => act("Room stay added.", `/encounters/${eid}/room-stays`, { room_code: roomCode, start_date: roomStart, end_date: roomEnd })}>Add bed / room charge</button></Card>}
-    {user.role === "ADMIN" && eid && encounter.payer_route !== "SELF" &&
-      <Card title={encounter.payer_route === "PRIVATE" ? "Cashless insurance" : "Payer pathway"} sub={`${encounter.payer_label} · simulated external response`} icon="P" wide>
-        <div className="p-summary-list">
-          <div><span>{encounter.payer_route === "PRIVATE" ? "Policy reference" : "Coverage"}</span><b>{encounter.payer_route === "PRIVATE" ? coverage.member_ref : coverage.eligibility_status}</b></div>
-          {encounter.payer_route === "PRIVATE" && <><div><span>Patient co-pay</span><b>{coverage.copay_bps / 100}% · {money(detail.patient_share_paise)}</b></div><div><span>Expected insurer share</span><b>{money(detail.payer_share_paise)}</b></div></>}
-          <div><span>Preauthorisation</span><b>{preauth?.status || "Not requested"}</b></div>
-          <div><span>Claim</span><b>{claim?.status || "Not submitted"}</b></div>
-        </div>
-        <div className="p-action-row">
-          {encounter.payer_route === "PMJAY" && coverage.eligibility_status !== "VERIFIED_DEMO" && <button className="p-secondary" disabled={busy} onClick={() => act("Beneficiary check recorded.", `/coverage/${eid}/verify`, { member_ref: `SYN-${eid}` })}>Verify beneficiary</button>}
-          {coverage.preauth_required && !preauth && <button className="p-secondary" disabled={busy} onClick={() => act("Preauthorisation requested.", "/preauth", { encounter_id: eid, requested_paise: Math.max(detail.payer_share_paise || 0, 1500000) })}>Request preauthorisation</button>}
-          {preauth?.status === "SUBMITTED_DEMO" && <button className="p-secondary" disabled={busy} onClick={() => act("Preauthorisation approved.", `/preauth/${preauth.preauth_id}/decision`, { approved_paise: preauth.requested_paise, reference_no: `SYN-PRE-${eid}` })}>Record approval</button>}
-          {encounter.payer_route !== "PRIVATE" && detail.invoice && !claim && <button className="p-secondary" disabled={busy} onClick={() => act("Claim prepared.", "/claims", { invoice_id: detail.invoice.invoice_id, discharge_summary: "Synthetic discharge summary.", documents: { itemised_bill: true, discharge_summary: true } })}>Prepare claim</button>}
-          {encounter.payer_route !== "PRIVATE" && claim?.status === "SUBMITTED_DEMO" && <button className="p-secondary" disabled={busy} onClick={() => act("Claim decision recorded.", `/claims/${claim.claim_id}/decision`, { approved_paise: claim.submitted_paise, reference_no: `SYN-CLM-${eid}` })}>Record claim decision</button>}
-        </div>
-        {encounter.payer_route === "PRIVATE" && <p className="p-fineprint">Cashless approval permits the insurer claim. It does not record a payment. After the invoice, use the settlement steps shown on the invoice.</p>}
-      </Card>}
-    {user.role === "PHARMACY" && <Card title="Medicine catalog" sub="Training stock and separate-sale tax settings" icon="M" wide><div className="p-stock-grid">{(stock.items || []).map((item: Row) => <div key={item.item_code}><div><b>{item.description}</b><code>{item.item_code}</code></div><Tag tone={item.tax_category === "NIL" ? "green" : "blue"}>{item.tax_category === "NIL" ? "Nil GST" : `${item.tax_rate_bps / 100}% GST`}</Tag><span>HSN {item.hsn_code} · {item.available_units} in stock · {money(item.unit_price_paise)}</span></div>)}</div><p className="p-fineprint">During this admission, prescribed treatment supplies follow the inpatient healthcare rule. Catalog GST rates shown here apply to separate sales. Check actual product classification before real billing.</p></Card>}
-    <div className="p-grid p-bottom"><Card title="Running bill" sub="Charges from completed work" icon="₹"><div className="p-bill-lines">{detail.charges?.length ? detail.charges.map((charge: Row) => <div key={charge.charge_id}><span><b>{charge.description}</b><small>{charge.service_code} · {charge.quantity} × {money(charge.unit_price_paise)} · {charge.tax_category === "TAXABLE" ? `${charge.tax_rate_bps / 100}% GST` : charge.tax_category}</small></span><b>{money(charge.subtotal_paise + Math.round(charge.subtotal_paise * charge.tax_rate_bps / 10000))}</b></div>) : <p className="p-muted">No delivered service has been charged yet.</p>}</div><div className="p-bill-total"><span>{detail.invoice ? "Final invoice" : "Running total"}</span><b>{money(detail.invoice?.total_paise ?? detail.running_total_paise)}</b></div>{user.role === "ADMIN" && (detail.invoice ? <button className="p-primary p-open-billing" onClick={() => setInvoiceOpen(true)}>View invoice {detail.invoice.invoice_no}</button> : <><button className="p-primary p-open-billing" disabled={busy || !canInvoice} onClick={generateInvoice}>Generate itemised invoice</button>{pendingLab || pendingRx ? <p className="p-fineprint">Complete pending lab and pharmacy work before invoicing.</p> : null}{selected === demoPatient && encounter.setting === "IPD" && !detail.room_stays?.length ? <p className="p-fineprint">Add the bed or room stay above before generating this admission invoice.</p> : null}</>)}</Card><Card title="Handoff record" sub="Same encounter across departments" icon="↗"><div className="p-handoff"><div><span className={notes.length ? "done" : ""}>1</span><b>Doctor</b><small>{notes.length ? "Recorded" : "Pending"}</small></div><div><span className={labs.some(order => order.status === "COMPLETED") ? "done" : ""}>2</span><b>Lab</b><small>{pendingLab ? "Ordered" : labs.length ? "Completed" : "Pending"}</small></div><div><span className={detail.dispenses?.length ? "done" : ""}>3</span><b>Pharmacy</b><small>{pendingRx ? "Ordered" : detail.dispenses?.length ? "Dispensed" : "Pending"}</small></div><div><span className={detail.invoice ? "done" : ""}>4</span><b>Invoice</b><small>{detail.invoice?.invoice_no || "Pending"}</small></div></div></Card></div>
-    {user.role === "ADMIN" && invoiceOpen && detail.invoice &&
-      <section className="p-card p-invoice-sheet" id="generated-invoice">
-        <div className="p-invoice-toolbar"><div><span className="p-kicker">INVOICE GENERATED</span><h2>{detail.invoice.invoice_no}</h2></div><div><button className="p-secondary" onClick={() => window.print()}>Print or save PDF</button><button className="p-secondary" onClick={() => setInvoiceOpen(false)}>Close</button></div></div>
-        <div className="p-invoice-meta"><div><small>Patient</small><strong>{patient.display_label}</strong><span>{patient.patient_id}</span></div><div><small>Admission</small><strong>{eid}</strong><span>{record.admission_plan?.payment_mode === "REIMBURSEMENT" && selected === demoPatient ? "Reimbursement claim" : encounter.payer_route === "PRIVATE" ? `Cashless · ${encounter.payer_label}` : encounter.payer_route === "SELF" ? "Self-pay" : encounter.payer_label}</span></div><div><small>Date</small><strong>{dateText(detail.invoice.issued_at)}</strong><span>Classroom sample</span></div></div>
-        <div className="p-invoice-table"><table><thead><tr><th>Service or item</th><th>Qty</th><th>Rate</th><th>GST</th><th>Amount</th></tr></thead><tbody>{(detail.invoice_lines || []).map((line: Row) => <tr key={line.invoice_line_id}><td>{line.description}</td><td>{line.quantity}</td><td>{money(line.unit_price_paise)}</td><td>{line.tax_category === "TAXABLE" ? `${line.tax_rate_bps / 100}%` : line.tax_category}</td><td>{money(line.total_paise)}</td></tr>)}</tbody></table></div>
-        <div className="p-invoice-totals"><div><span>Subtotal</span><strong>{money(detail.invoice.subtotal_paise)}</strong></div><div><span>GST</span><strong>{money(detail.invoice.tax_paise)}</strong></div><div className="grand"><span>Invoice total</span><strong>{money(detail.invoice.total_paise)}</strong></div>{encounter.payer_route === "PRIVATE" && <><div><span>Patient co-pay ({coverage.copay_bps / 100}%)</span><strong>{money(detail.patient_share_paise)}</strong></div><div><span>Cashless insurer share</span><strong>{money(detail.payer_share_paise)}</strong></div></>}<div><span>Balance remaining</span><strong>{money(detail.remaining_paise)}</strong></div></div>
-        {encounter.payer_route === "SELF" && <>
-          {record.admission_plan?.payment_mode === "REIMBURSEMENT" && selected === demoPatient && <div className="p-reimbursement-panel"><h3>Reimbursement claim</h3><p>The patient pays the hospital first, then submits the itemised invoice, payment receipt and discharge documents to their insurer. Use “Print or save PDF” above for the bill. Reimbursement depends on the policy.</p></div>}
-          {detail.patient_due_paise > 0 && <div className="p-invoice-payment"><label className="p-field">Payment method<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option>UPI</option><option>CASH</option><option>CARD</option></select></label><button className="p-primary" disabled={busy} onClick={() => act("Payment receipt recorded.", "/receipts", { invoice_id: detail.invoice.invoice_id, payer_kind: "PATIENT", amount_paise: detail.patient_due_paise, method: paymentMethod })}>Record patient payment {money(detail.patient_due_paise)}</button></div>}
-        </>}
-        {encounter.payer_route === "PRIVATE" && <div className="p-cashless-panel">
-          <div className="p-cashless-head"><div><h3>Cashless settlement</h3><p>The billed charges are treated as eligible under this synthetic policy. Approval and payment are recorded separately.</p></div><span>{claim?.status === "APPROVED_DEMO" ? "Claim approved" : claim ? "Claim submitted" : "Claim pending"}</span></div>
-          <div className="p-cashless-split"><div><small>Patient still owes</small><b>{money(detail.patient_due_paise)}</b></div><div><small>Insurer still owes</small><b>{money(detail.payer_due_paise)}</b></div></div>
-          <p className="p-out-of-pocket">{detail.patient_due_paise === 0 ? "No patient payment is needed for covered charges in this example. " : "The co-pay is paid by the patient. "}You may still pay out of pocket for non-medical expenses such as toiletries, registration fees or specified consumables when the policy excludes them.</p>
-          <div className="p-cashless-method"><span>Payment options for co-pay or excluded expenses</span><div className="p-payment-method-options">{["UPI", "CASH", "CARD"].map(method => <button key={method} type="button" className={paymentMethod === method ? "selected" : ""} onClick={() => setPaymentMethod(method)}>{method === "CASH" ? "Cash" : method === "CARD" ? "Card" : "UPI"}</button>)}</div></div>
-          <div className="p-cashless-actions">
-            {!claim && <button className="p-secondary" disabled={busy} onClick={() => act("Cashless claim prepared.", "/claims", { invoice_id: detail.invoice.invoice_id, discharge_summary: "Synthetic admission discharge summary.", documents: { itemised_bill: true, discharge_summary: true } })}>Prepare cashless claim</button>}
-            {claim?.status === "SUBMITTED_DEMO" && <button className="p-secondary" disabled={busy} onClick={() => act("Claim approval recorded. No payment has been received yet.", `/claims/${claim.claim_id}/decision`, { approved_paise: claim.submitted_paise, reference_no: `SYN-CLM-${eid}` })}>Record claim approval</button>}
-            {detail.patient_due_paise > 0 && <button className="p-primary" disabled={busy} onClick={() => act("Patient co-pay receipt recorded.", "/receipts", { invoice_id: detail.invoice.invoice_id, payer_kind: "PATIENT", amount_paise: detail.patient_due_paise, method: paymentMethod })}>Collect patient co-pay {money(detail.patient_due_paise)}</button>}
-            {claim?.status === "APPROVED_DEMO" && detail.payer_due_paise > 0 && <button className="p-primary" disabled={busy} onClick={() => act("Insurer settlement receipt recorded.", "/receipts", { invoice_id: detail.invoice.invoice_id, payer_kind: "INSURER", amount_paise: detail.payer_due_paise, method: "TRANSFER", reference_no: `SYN-SET-${eid}` })}>Record insurer payment {money(detail.payer_due_paise)}</button>}
-          </div>
-          <p className="p-fineprint">The insurer and TPA responses and bank transfer are simulated locally. A cashless approval is not a payment receipt.</p>
-        </div>}
-        <p className="p-fineprint">Synthetic classroom invoice. Not for real patient care.</p>
-      </section>}
-    {user.role === "ADMIN" && <section className="p-card p-tax-review"><div><h3>GST review</h3><p>Preview taxable and exempt totals from final invoices.</p></div><button className="p-secondary" disabled={busy} onClick={async () => { setBusy(true); setError(""); try { setTaxReport(await api(`/gstr1?month=${today().slice(0, 7)}`)); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); } }}>Load this month</button>{taxReport && <div className="p-tax-results"><span>Taxable B2C groups: {taxReport.tables?.table7?.length || 0}</span><span>Nil and exempt groups: {taxReport.tables?.table8?.length || 0}</span><span>HSN rows: {taxReport.tables?.table12?.length || 0}</span></div>}</section>}
-  </div></main></div>;
+  return <div className="p-shell">
+    <aside className="p-sidebar"><div className="p-logo dark"><span>+</span><b>Tiveri</b></div>
+      <div className="p-side-label">SIGNED IN</div><div className="p-side-person"><span>{role?.icon}</span><div><b>{deskTitle[user.role]}</b><small>{user.display_name}</small></div></div>
+      <div className="p-side-tabs"><button className={view === "desk" ? "active" : ""} onClick={() => setView("desk")}>Desk</button><button className={view === "map" ? "active" : ""} onClick={() => setView("map")}>Data map</button></div>
+      <div className="p-side-label">PATIENTS</div>
+      <div className="p-side-list">{patients.map(row => <button key={row.patient_id} className={selected === row.patient_id ? "active" : ""} onClick={() => choose(row.patient_id)}>
+        <span className="p-avatar">{initials(row.display_label)}</span><span><b>{row.display_label}</b><small>{row.mrn} · {row.latest_status ? `${row.latest_setting} ${row.latest_status.toLowerCase()}` : "no visit"}</small></span></button>)}</div>
+      <div className="p-sidebar-foot"><span className="p-dot" /> PostgreSQL connected <button onClick={logout}>Sign out ↗</button></div>
+    </aside>
+    <main className="p-main">
+      <header className="p-topbar"><div><div className="p-kicker">DH 308 · HIS AND BILLING</div><h1>{view === "map" ? "Data map" : deskTitle[user.role]}</h1></div>
+        <div className="p-topright"><Tag tone="green">Live demo</Tag><span>{user.display_name}<small>{user.role.toLowerCase()}</small></span>
+          {user.role === "ADMIN" && <button onClick={resetDemo} disabled={busy}>Reset demo</button>}<button className="p-top-signout" onClick={logout}>Sign out</button></div></header>
+      <div className="p-content">
+        {error && <div className="p-alert error">{error}<button onClick={() => setError("")}>×</button></div>}
+        {notice && <div className="p-alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
+        <section className="p-patient"><div className="p-patient-top"><div><div className="p-kicker">PATIENT · {patient.mrn}{patient.abha_number ? ` · ABHA ${patient.abha_number}` : ""}</div>
+          <h2>{patient.display_label || "Choose a patient"}</h2><p>{patient.age_years} years · {patient.sex} · {patient.city} · {patient.blood_group} · {patient.allergies}</p></div>
+          <div className="p-patient-tags">{enc.encounter_id ? <><Tag>{enc.setting}</Tag><Tag tone={statusTone(enc.status)}>{enc.status}</Tag><Tag tone="blue">{payerText(enc)}</Tag></> : <Tag tone="amber">No visit yet</Tag>}
+            {(record.encounters || []).length > 1 && <select className="p-visit-pick" value={visit} onChange={e => refresh(selected, e.target.value)}>{record.encounters.map((e: Row) => <option key={e.encounter_id} value={e.encounter_id}>{e.encounter_id} · {e.status}</option>)}</select>}</div></div>
+          {patient.history_summary && <p className="p-history">{patient.history_summary}</p>}</section>
+        {view === "desk" && enc.encounter_id && <div className="p-flow">{steps(detail).map((s, i) => <div key={s.name} className={s.ok ? "done" : ""}><span>{s.ok ? "✓" : i + 1}</span><b>{s.name}</b><small>{s.note}</small></div>)}</div>}
+        {view === "map" ? <DataMap ctx={ctx} /> : <Desk ctx={ctx} />}
+      </div>
+    </main>
+  </div>;
 }

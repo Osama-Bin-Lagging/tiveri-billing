@@ -1,0 +1,72 @@
+/* Styles for the five-desk workflow and the Data map. Builds on portal.css (same colours and fonts). */
+.p-tag.red{background:#fde8e6;color:#b4382a}.p-tag.grey{background:#eef1f3;color:#66737b}
+.p-side-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:14px 0 4px}
+.p-side-tabs button{border:1px solid #ffffff33;background:transparent;color:#d6ecec;border-radius:9px;padding:8px;font-weight:700;cursor:pointer}
+.p-side-tabs button.active{background:#a8f1dd;color:#075264;border-color:#a8f1dd}
+.p-visit-pick{border:1px solid #cfe0e0;border-radius:8px;padding:6px 8px;font:inherit;font-size:12px}
+.p-flow{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin:14px 0}
+.p-flow div{background:#fff;border:1px solid #dfe9e9;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.p-flow span{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:#eef3f3;color:#5d7177;font-size:12px;font-weight:800}
+.p-flow b{font-size:13px}.p-flow small{color:#6c7f86;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-flow .done{border-color:#9edcc8;background:#f2fbf7}.p-flow .done span{background:#148e92;color:#fff}
+.p-check-groups{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.p-check{display:flex;gap:7px;align-items:flex-start;font-size:13px;margin:6px 0;cursor:pointer;flex-wrap:wrap}
+.p-check small{width:100%;margin-left:22px;color:#6c7f86;font-size:11px}
+.p-med-row{display:grid;grid-template-columns:2fr 70px 2fr auto;gap:6px;margin:6px 0}
+.p-med-row select,.p-med-row input,.p-inline-form input,.p-order-input input{border:1px solid #cfe0e0;border-radius:8px;padding:7px 9px;font:inherit;font-size:13px;min-width:0}
+.p-link{background:none;border:none;color:#0e7f86;font-weight:700;cursor:pointer;padding:4px 6px;font:inherit;font-size:13px}
+.p-link:hover{text-decoration:underline}
+.p-admit{display:flex;gap:10px;align-items:center;margin:10px 0}.p-admit select{border:1px solid #cfe0e0;border-radius:8px;padding:7px;font:inherit}
+.p-table{overflow-x:auto}.p-table table{width:100%;border-collapse:collapse;font-size:13px}
+.p-table th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6c7f86;padding:8px;border-bottom:1px solid #e3ecec}
+.p-table td{padding:9px 8px;border-bottom:1px solid #eef3f3;vertical-align:top}.p-table td small{color:#6c7f86}
+.p-table tr.p-offset td{color:#8a5b52;background:#fffaf8}.p-table tr.p-struck td:not(:last-child){color:#9aa8ad;text-decoration:line-through}
+.p-row-actions{text-align:right;white-space:nowrap}
+.p-discharge{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:14px;padding:14px;border:1px dashed #b9d9d6;border-radius:12px;background:#f7fcfb}
+.p-discharge small{display:block;color:#5f747a;margin-top:3px}
+.p-order{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #eef3f3}
+.p-order small{display:block;color:#6c7f86;font-size:12px;margin-top:2px}.p-order-input{display:flex;gap:8px;align-items:center}
+.p-order-input input{width:140px}
+.p-inline-form{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:8px 0}.p-inline-form .p-field{margin:0}
+.p-sim{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:12px;color:#5f747a}
+.p-sim-box{border:1px solid #e3ecec;border-radius:12px;padding:10px 12px;margin:10px 0;background:#fbfdfd}
+.p-card.p-ok{border-color:#9edcc8}.p-card.p-bad{border-color:#f1b9ae}
+.p-audit-head{font-weight:800;padding:9px 12px;border-radius:10px;margin-bottom:8px}.p-audit-head.ok{background:#e6f7ef;color:#11724b}.p-audit-head.bad{background:#fdecea;color:#a3352a}
+.p-finding{border-left:4px solid;padding:8px 12px;margin:6px 0;border-radius:6px;display:flex;flex-direction:column;gap:3px;font-size:13px}
+.p-finding.block{border-color:#d9493a;background:#fff6f5}.p-finding.warn{border-color:#e0a42c;background:#fffaf0}
+.p-finding b{font-size:11px;letter-spacing:.06em}
+.p-totals{display:grid;gap:6px;max-width:420px;margin:14px 0 12px auto}
+.p-totals div{display:flex;justify-content:space-between;font-size:14px}.p-totals .grand{border-top:1px solid #e3ecec;padding-top:6px;font-weight:800;font-size:16px}
+.p-ledger{display:flex;gap:24px;align-items:center;margin-bottom:12px}.p-ledger small{display:block;color:#6c7f86;font-size:11px}.p-ledger b{font-size:20px}
+.p-payment-method-options{display:flex;gap:6px;margin:10px 0}.p-payment-method-options button{border:1px solid #cfe0e0;background:#fff;border-radius:9px;padding:7px 12px;font-weight:700;cursor:pointer}
+.p-payment-method-options button.selected{background:#148e92;color:#fff;border-color:#148e92}
+/* Data map */
+.p-datamap{display:flex;flex-direction:column;gap:14px}
+.p-dm-toolbar{display:flex;justify-content:space-between;align-items:flex-end;gap:20px}.p-dm-toolbar h2{margin:6px 0 4px;font-size:22px}.p-dm-toolbar p{margin:0;color:#5f747a}
+.p-dm-canvas{background:#fff;border:1px solid #dfe9e9;border-radius:16px;padding:12px;overflow-x:auto}
+.p-dm-canvas svg{width:100%;min-width:900px;height:auto;display:block;font-family:'DM Sans',Arial,sans-serif}
+.p-dm-edge line{stroke:#c3ced4;stroke-width:1.2}.p-dm-edge.lit line{stroke:#7f9aa6;stroke-width:1.8}.p-dm-edge.hot line{stroke:#0e7f86;stroke-width:2.6}
+.p-dm-rel{font-size:10px;fill:#0e7f86;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px}
+.p-dm-card{font-size:10px;fill:#516770;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px}
+.p-dm-node{cursor:pointer}.p-dm-node.empty{opacity:.42}.p-dm-node:hover{opacity:1}.p-dm-node.sel{filter:drop-shadow(0 3px 6px #0e7f8655)}
+.p-dm-name{font-size:12.5px;font-weight:800;fill:#18323f}.p-dm-table{font-size:9.5px;fill:#5f747a;font-family:Menlo,monospace}
+.p-dm-count{font-size:11px;font-weight:800;fill:#fff}.p-dm-band{font-size:10px;letter-spacing:.12em;font-weight:800;fill:#8193a0}
+.p-dm-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#5f747a;margin:8px 4px 0}
+.p-dm-legend i{display:inline-block;width:14px;height:10px;border:1.5px solid;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.p-dm-legend i.weak{border:3px double #a07a1c;background:#f6e8c6}.p-dm-legend i.diamond{transform:rotate(45deg);width:9px;height:9px;background:#dbe7f3;border-color:#3f6e99}
+.p-dm-panel-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}.p-dm-panel-head h3{margin:4px 0}.p-dm-panel-head small{font-weight:500;color:#6c7f86;font-size:13px}
+.p-tabs{display:flex;gap:4px;background:#eef3f3;padding:4px;border-radius:10px}.p-tabs button{border:none;background:transparent;padding:7px 12px;border-radius:7px;font-weight:700;color:#4f646b;cursor:pointer}
+.p-tabs button.selected{background:#fff;color:#0e5f66;box-shadow:0 1px 3px #0001}
+.p-dm-rows{display:flex;flex-direction:column;gap:10px;margin-top:12px;max-height:560px;overflow:auto}
+.p-dm-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px 14px;padding:12px;border:1px solid #e3ecec;border-radius:12px}
+.p-dm-row.focus{border-color:#148e92;box-shadow:0 0 0 3px #148e9233;background:#f4fbfa}
+.p-dm-row div{min-width:0}.p-dm-row small{display:block;font-size:10.5px;color:#6c7f86;font-family:Menlo,monospace}
+.p-dm-row b{font-size:13px;word-break:break-word}.p-dm-row .pk b{color:#0e5f66}.p-dm-row .p-link{padding:0;font-size:13px;text-align:left;word-break:break-all}
+.p-timeline{margin-top:12px;max-height:520px;overflow:auto}
+.p-timeline div{display:grid;grid-template-columns:130px 1fr 1.4fr auto;gap:10px;padding:8px 4px;border-bottom:1px solid #eef3f3;font-size:13px;align-items:center}
+.p-timeline small{color:#6c7f86}.p-timeline span{color:#5f747a;font-family:Menlo,monospace;font-size:12px}
+@media (max-width:1100px){.p-flow{grid-template-columns:repeat(4,1fr)}.p-check-groups{grid-template-columns:1fr}}
+@media print{.p-sidebar,.p-topbar,.p-flow,.p-alert,.p-grid,.p-tax-review,.p-row-actions,button{display:none!important}}
+.p-shell input[type=checkbox]{width:16px;height:16px;padding:0;margin:2px 0 0;flex:0 0 auto;accent-color:#148e92}
+.p-check{flex-wrap:nowrap}.p-check>span{display:flex;flex-direction:column}.p-check small{margin-left:0}
+.p-check{flex-direction:row;font-size:13px;font-weight:600;letter-spacing:0;color:#173744}

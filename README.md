@@ -1,10 +1,20 @@
 # Tiveri Billing
 
-A working DH 308 teaching prototype for an Indian hospital. The website uses Next.js, the API uses FastAPI, and records persist in PostgreSQL. All patient labels, payer references, prices and clinical details are invented.
+A DH 308 teaching prototype of a hospital billing system integrated with the HIS, for an Indian hospital. Next.js website, FastAPI API, PostgreSQL 16. All patients, prices, payer references and clinical details are invented.
 
-The visible demo has four staff desks: doctor, laboratory, pharmacy, and billing. They share an existing patient record. A doctor-confirmed observation admission creates an inpatient encounter with ICD-10 E11.9, an HbA1c order with LOINC 4548-4 and an optional CPT 83036 reference, a prescription, and a doctor assessment charge. Completing the lab result and dispensing the medicine add their own charges to the same running bill. Billing then records a one-day private room stay and generates the itemised admission invoice on the same page. The API also supports outpatient, emergency and day care encounters, payer rates, packages, advances and refunds, simulated TPA and PM-JAY workflows, claims, receipts, GSTR-1 review, receivables, reports, and an audit trail.
+Five staff desks share one patient record:
 
-External insurer, PM-JAY, CGHS and GST portal actions are simulated. Do not enter real patient details or use the demo tax settings for real invoices. The local demo accounts use a shared training password and are not suitable for a live hospital.
+- **Reception**: registration with MRN and optional ABHA, insurance policy, appointment, check-in, insurance verification, deposit.
+- **Doctor**: consultation, a coded ICD-10 diagnosis, and any mix of lab, radiology, procedure and medicine orders; admission to a ward; discharge.
+- **Diagnostics**: lab results (LOINC) and radiology reports (SNOMED CT). Each completed test posts its own charge.
+- **Pharmacy**: dispensing from the earliest-expiring batch. Inpatient supply is GST-exempt; outpatient sale follows the item rate.
+- **Billing**: running bill, pre-bill audit with charge reversal, bill generation, pre-authorisation, packages, claims (full, partial, rejected, resubmitted), shortfall to the patient or written off, payments that can fail and be retried, reminders and notifications.
+
+Every desk also has a **Data map**: the ER diagram drawn live for the selected patient. Each entity box shows how many records exist; click it to see every attribute, and click a linked ID to follow the relationship. A timeline shows who did what.
+
+The ER-name to table mapping is in `docs/er_mapping.md`. The API is summarised in `docs/api_contract.md`.
+
+External insurer, PM-JAY, CGHS, SMS and GST portal actions are simulated. Do not enter real patient details. The shared classroom password is not suitable for a live hospital.
 
 ## Fastest local start: Docker
 
@@ -39,37 +49,52 @@ npm run dev
 
 Open http://127.0.0.1:3000. `frontend/next.config.ts` sends same-origin `/api/*` requests to the local FastAPI server. If the API uses a different address, set `API_INTERNAL_URL` before running or building Next.js.
 
-## Demo sign-in and handoff
+## Demo walkthrough
 
-At http://127.0.0.1:3000 choose Billing, Doctor, Laboratory, or Pharmacy. The password for every classroom account is `Demo@1234`. Sign out from the sidebar to change desks. The selected patient remains selected across roles.
+Open the site and choose a desk. The password for every desk is `Demo@1234`. Sign out from the sidebar to change desks; the selected patient stays selected. **Reset demo** (Billing desk) rebuilds all demo data.
 
-For the featured admission, Billing can choose Self-pay, Cashless claim, or Reimbursement claim before the doctor starts. Self-pay and reimbursement collect the hospital bill from the patient using UPI, cash, or card; reimbursement is then pursued by the patient with their insurer outside this demo. Cashless defaults to zero co-pay for eligible charges. It shows patient payment options for any selected co-pay or excluded non-medical expenses, while the insurer claim and settlement are recorded separately. The example does not add excluded expenses to the invoice automatically.
+**Full self-pay visit (new patient)**
+1. **Reception**: register a patient (try an ABHA number such as `56-1234-9876-0001`), book an appointment or start a walk-in visit as Self-pay, and take a deposit.
+2. **Doctor**: record the consultation, pick an ICD-10 diagnosis, tick tests (for example CBC and chest X-ray), add a medicine, and save. Tick "Admit to a ward" to make it an inpatient stay.
+3. **Diagnostics**: enter the lab result and the radiology findings.
+4. **Pharmacy**: dispense the medicine.
+5. **Doctor**: end the visit, or discharge the patient. Discharge is blocked while any order is pending.
+6. **Billing**: the pre-bill audit runs; generate the bill. Collect by UPI, click *Fail*, retry by card, click *Success*. The bill is settled and a notification is logged.
+7. Open **Data map** to show every record the visit created.
 
-1. Sign in as Billing, select Asha Kulkarni and review her invented history. She has no open encounter. Sign out.
-2. Sign in as Doctor with Asha selected. Review the prepared diagnosis and test mapping, edit the note if needed, and select **Create admission and send orders**. The ₹500 doctor assessment posts immediately. ICD-10 E11.9 is the diagnosis. CPT 83036 is shown as an optional procedure reference, while the hospital's own HBA1C code sets the lab price.
-3. Sign in as Laboratory. Asha's HbA1c order displays LOINC 4548-4. Enter the synthetic result and select **Complete test and post charge**. The ₹650 lab charge appears once on the running bill.
-4. Sign in as Pharmacy. Dispense the 10 training metformin tablets from stock. This adds ₹60 to the inpatient treatment bill without a separate medicine GST charge in the prototype. The catalog also shows separate-sale medicine GST settings and a nil-rated training SKU.
-5. Sign in as Billing again. Select the ₹6,000/day private non-ICU room and keep the one-day dates. Click **Add bed / room charge**. The training room rule adds ₹300 GST to that room line, subject to the official conditions.
-6. Asha's running bill now has doctor, lab, medicine and room lines. Select **Generate itemised invoice**. The synthetic total is ₹7,510.00 and the invoice appears on the same page. Dev Mehta and Farah Khan retain simulated TPA and PM-JAY cases.
+**Ready-made cases** (Billing desk)
 
-## Scope of the prototype
+| Patient | What to show |
+|---|---|
+| Rohan Iyer | Pre-bill audit fails on a duplicate CBC charge, then *Reverse this charge*, *Re-audit* and *Generate bill* |
+| Dev Mehta | Cashless claim awaiting a decision: *Approve part*, record the insurer payment, *Bill the patient* for the rest, *Send reminder*, then collect |
+| Nadia Roy | Rejected claim: *Resubmit claim*, *Approve in full*, record the insurer payment |
+| Farah Khan | PM-JAY package with original prices kept: Pharmacy dispenses ORS, Doctor discharges, Billing bills and claims |
+| Manoj Shah | UPI payment pending: *Fail* or *Timeout*, then retry |
+| Sanjay Kumar | 40-day-old unpaid bill: *Send reminder*; shows in the unpaid-bill ageing report |
+| Ananya Rao | Open visit with tests and a medicine waiting (fills the Diagnostics and Pharmacy worklists) |
+| Asha Kulkarni | Registered with ABHA and an Alpha TPA policy, no visit yet. Use her for a live cashless admission |
 
-The website keeps the presentation path short. Billing staff can review a monthly GSTR-1 working summary on the patient page. The backend retains the more detailed report, receivables, rate card, advance, refund, and audit endpoints in `/docs`. The tax review packet is not an upload-ready government return.
+## Rules the system enforces
 
-## Important database rules
-
-- A HIS `source_event_id` is unique. An identical retry returns the original charge; a changed retry is rejected.
-- Service prices and tax classification are copied to each charge. Final invoice lines copy them again.
-- An encounter has one final invoice. Every charge can appear on only one final invoice.
-- A payer approval creates no receipt. Only a posted receipt reduces the outstanding balance.
-- PM-JAY demo encounters block patient collection and require a simulated check plus preauthorisation for the seeded IPD case.
-- Stock dispensing uses an unexpired batch with enough quantity and posts stock and charge in one database transaction.
-- Amounts are stored as integer paise. Tax calculations use the seeded effective-dated rule on charge capture.
-- The tax and HSN values are teaching assumptions. A real hospital must load current item-level classifications and contracted prices.
+- Charges post only from completed work: consultation, test result, radiology report, procedure, dispense, or ward days at discharge. A source event ID is unique: an identical retry returns the original charge, and a changed retry is rejected.
+- Prices and tax are copied onto each charge and again onto each bill line. Nothing is deleted or overwritten. Corrections are REVERSAL lines; packages add PACKAGE_ADJ lines and keep the original prices visible.
+- The bill needs a discharged visit and a pre-bill audit with no blocking findings. The audit checks:
+  - diagnosis present
+  - pending orders
+  - duplicate or unsupported charges
+  - GST review
+  - ward days
+  - insurance verification
+  - pre-authorisation
+  - PM-JAY package
+- A claim approval is not a payment. Only SUCCEEDED payments reduce the balance. A part-approved or rejected claim's shortfall goes to the patient or is written off. PM-JAY beneficiaries are never charged.
+- Money is stored as integer paise. GST uses effective-dated rules. The tax and HSN values are teaching assumptions.
+- The database schema is versioned. On startup an older demo database is rebuilt from `backend/app/schema.sql` and reseeded.
 
 ## Tests
 
-With a local PostgreSQL database available:
+With a PostgreSQL 16 database available (set `DATABASE_URL`):
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\test_api.py -q
@@ -77,21 +102,28 @@ cd frontend
 npm run build
 ```
 
-The API tests reset the synthetic database and exercise the doctor, laboratory, pharmacy, bed and billing handoff, role access, duplicate lab completion, prescription-linked dispensing, nil and 5% tax examples, inpatient treatment supply, room rent, outpatient billing, TPA, PM-JAY, packages, payment, refunds, tax review and receivables. The four role screens and same-page invoice were also checked in a live browser against the local servers.
+The 9 API scenarios cover:
+- a full self-pay OPD visit with a payment failure and retry
+- a cashless admission with an audit correction and a partly approved claim
+- a rejected claim that is resubmitted
+- a PM-JAY package
+- cancelled orders
+- the seeded audit case
+- payment timeout and an overdue reminder
+- Data map coverage of every ER entity
+- reports
 
 ## Project layout
 
-- `frontend/app/`: Next.js UI
-- `backend/app/main.py`: FastAPI endpoints and billing rules
-- `backend/app/schema.sql`: PostgreSQL schema
+- `backend/app/main.py`: app, schema versioning, desk permissions, sign-in, reports
+- `backend/app/core.py`: shared rules (pricing, charge posting, balances)
+- `backend/app/reception.py`, `clinical.py`, `billing.py`, `payer.py`, `records.py`, `datamap.py`: one module per desk / area
+- `backend/app/seed.py`: synthetic demo data, built through the same functions the desks use
+- `backend/app/schema.sql`: PostgreSQL schema (ER names noted per table)
+- `frontend/app/page.tsx`: shell; `frontend/app/desks/*.tsx`: the five desks; `frontend/app/DataMap.tsx`: live ER view
 - `tests/test_api.py`: database-backed API scenarios
-- `docs/core_er.mmd`, `docs/payer_er.mmd`, `docs/clinical_er.mmd`: earlier design sketches. The final presentation uses the supplied Chen notation ER diagram.
-- `docs/api_contract.md`: API summary
-- `docs/sources.md`: course and official research sources
-- `docs/DH308_Billing_Prototype_Guide.pdf`: illustrated local build and AWS classroom demo guide
-- `docs/DH308_Billing_Prototype_Guide.tex`: editable guide source
-- `presentation/DH308_HIS_Billing_Final.pptx`: final presentation deck without speaker notes
-- `docker-compose.yml`: local three-service stack
+- `docs/er_mapping.md`, `docs/api_contract.md`, `docs/sources.md`; `prd.md` for scope and priorities
+- `docs/*_er.mmd`: earlier design sketches, kept for reference
 
 ## Deployment boundary
 
