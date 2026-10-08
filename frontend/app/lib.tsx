@@ -36,7 +36,8 @@ export const dateText = (s?: string) =>
   s ? new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "";
 export const dateTime = (s?: string) =>
   s ? new Date(s).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-export const today = (days = 0) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+// Local calendar date (not UTC), so early-morning IST still shows today's date.
+export const today = (days = 0) => { const d = new Date(Date.now() + days * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 export const initials = (name?: string) => (name || "").split(" ").map(part => part[0]).join("").slice(0, 2);
 
 export async function api(path: string, init: RequestInit = {}) {

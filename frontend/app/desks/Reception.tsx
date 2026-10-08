@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, Ctx, Empty, Row, Tag, dateText, dateTime, money, payerText, statusTone, today } from "../lib";
 
 export default function Reception({ ctx }: { ctx: Ctx }) {
@@ -15,6 +15,8 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
   const [appt, setAppt] = useState({ doctor_id: "D-01", slot_at: `${today()}T11:00`, reason: "" });
   const [visit, setVisit] = useState({ setting: "OPD", payment_mode: "SELF", policy_id: "" });
   const [deposit, setDeposit] = useState({ amount: 2000, method: "UPI" });
+  // A different patient starts with empty entry boxes (nothing typed for the last patient carries over).
+  useEffect(() => { setPol(p => ({ ...p, policy_no: "" })); setAppt(a => ({ ...a, reason: "" })); }, [selected]);
 
   const visitBody = () => ({ ...visit, policy_id: visit.payment_mode === "SELF" ? "" : visit.policy_id || policies[0]?.policy_id || "" });
   const payerChoices = <>
@@ -45,7 +47,7 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
           <label className="p-field">Valid to<input type="date" value={pol.valid_to} onChange={e => setPol({ ...pol, valid_to: e.target.value })} /></label>
           <label className="p-field">Co-pay<select value={pol.copay_percent} onChange={e => setPol({ ...pol, copay_percent: Number(e.target.value) })}><option value={0}>None</option><option value={10}>10%</option><option value={20}>20%</option></select></label>
         </div>
-        <button className="p-secondary" disabled={busy || !selected || pol.policy_no.trim().length < 3} onClick={() => act("Policy added.", `/patients/${selected}/policies`, { payer_route: pol.payer_route, provider_name: pol.provider_name, policy_no: pol.policy_no, valid_from: today(-30), valid_to: pol.valid_to, coverage_amount_paise: pol.cover * 100, copay_percent: pol.copay_percent, nominee: "Spouse" })}>Add policy</button>
+        <button className="p-secondary" disabled={busy || !selected || pol.policy_no.trim().length < 3} onClick={async () => (await act("Policy added.", `/patients/${selected}/policies`, { payer_route: pol.payer_route, provider_name: pol.provider_name, policy_no: pol.policy_no, valid_from: today(-30), valid_to: pol.valid_to, coverage_amount_paise: pol.cover * 100, copay_percent: pol.copay_percent, nominee: "Spouse" })) && setPol({ ...pol, policy_no: "" })}>Add policy</button>
       </Card>
       <Card title="Appointment" sub="Book, then check in on arrival" icon="A">
         {appts.length > 0 && <div className="p-summary-list">{appts.slice(0, 4).map(a => <div key={a.appointment_id}><span>{dateTime(a.slot_at)} · {a.doctor_name}<small> {a.reason}</small></span><Tag tone={statusTone(a.status === "CHECKED_IN" ? "COMPLETED" : a.status)}>{a.status.replace("_", " ")}</Tag></div>)}</div>}
@@ -54,7 +56,7 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
           <label className="p-field">Date and time<input type="datetime-local" value={appt.slot_at} onChange={e => setAppt({ ...appt, slot_at: e.target.value })} /></label>
         </div>
         <label className="p-field">Reason<input value={appt.reason} onChange={e => setAppt({ ...appt, reason: e.target.value })} placeholder="e.g. Fever, review" /></label>
-        <button className="p-secondary" disabled={busy || !selected} onClick={() => act("Appointment booked. SMS confirmation logged (simulated).", "/appointments", { patient_id: selected, doctor_id: appt.doctor_id, slot_at: new Date(appt.slot_at).toISOString(), reason: appt.reason })}>Book appointment</button>
+        <button className="p-secondary" disabled={busy || !selected} onClick={async () => (await act("Appointment booked. SMS confirmation logged (simulated).", "/appointments", { patient_id: selected, doctor_id: appt.doctor_id, slot_at: new Date(appt.slot_at).toISOString(), reason: appt.reason })) && setAppt({ ...appt, reason: "" })}>Book appointment</button>
       </Card>
 
     </div>
