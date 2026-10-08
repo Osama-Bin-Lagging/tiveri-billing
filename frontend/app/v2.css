@@ -138,3 +138,4 @@
 .p-card .p-row-actions button{width:auto;padding:7px 14px;margin-left:6px}.p-result{min-width:180px;max-width:340px}
 .p-dmx-rel-top{pointer-events:none}.p-dmx-rel-top .p-dmx-diamond{fill:#e6f6f4;stroke:#0e7f86;stroke-width:2}
 .p-rx-done{background:#f3f8f7;border:1px solid #e1ece9;border-radius:10px;padding:10px 12px;margin-bottom:14px}.p-rx-done>div{display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:12px}.p-rx-done small{color:#6c8590}.p-rx-done .p-fineprint{margin-top:6px}
+.p-decision{border-top:1px solid #e7efee;padding:12px 0 4px;display:grid;gap:8px}.p-decision:first-of-type{border-top:0}.p-decision>b{font-size:13px}.p-decision>small{color:#6c8590;font-size:12px;margin-top:-6px}.p-secondary.danger{color:#b4382a}

@@ -120,13 +120,17 @@ export default function Billing({ ctx }: { ctx: Ctx }) {
           {c.rejection_reason && <small>Reason: {c.rejection_reason}</small>}</div>)}
         {!claim && <button className="p-primary" disabled={busy} onClick={() => act("Claim submitted with the itemised bill and discharge summary.", "/claims", { invoice_id: inv.invoice_id, discharge_summary: `Treated for ${(detail.prescriptions || []).map((p: Row) => p.diagnosis).join(", ")}; discharged stable (synthetic).` })}>Submit claim</button>}
         {claim?.status === "SUBMITTED" && <div className="p-sim-box"><div className="p-mini-heading">Simulate the insurer's decision</div>
-          <button className="p-secondary" disabled={busy} onClick={() => act("Claim approved in full. Payment still to come.", `/claims/${claim.claim_id}/decision`, { outcome: "APPROVED" })}>Approve in full</button>
-          <div className="p-inline-form"><input type="number" placeholder="Approved ₹" value={partial.amount || ""} onChange={e => setPartial({ ...partial, amount: Number(e.target.value) })} /><input value={partial.reason} onChange={e => setPartial({ ...partial, reason: e.target.value })} />
-            <button className="p-secondary" disabled={busy || !partial.amount} onClick={() => act("Claim partly approved.", `/claims/${claim.claim_id}/decision`, { outcome: "PARTIAL", approved_paise: partial.amount * 100, reason: partial.reason })}>Approve part</button></div>
-          <div className="p-inline-form"><input value={reject} onChange={e => setReject(e.target.value)} />
-            <button className="p-link" disabled={busy || !reject.trim()} onClick={() => act("Claim rejected. A notice was logged for the patient.", `/claims/${claim.claim_id}/decision`, { outcome: "REJECTED", reason: reject })}>Reject</button></div>
+          <div className="p-decision"><b>1 · Approve in full</b><small>Insurer pays the whole claim of {money(claim.submitted_paise)}.</small>
+            <button className="p-secondary" disabled={busy} onClick={() => act("Claim approved in full. Payment still to come.", `/claims/${claim.claim_id}/decision`, { outcome: "APPROVED" })}>Approve in full</button></div>
+          <div className="p-decision"><b>2 · Approve part</b><small>Insurer pays less than claimed; the rest can go to the patient or be written off.</small>
+            <label className="p-field">Amount the insurer pays (₹, less than {money(claim.submitted_paise)})<input type="number" min={1} value={partial.amount || ""} onChange={e => setPartial({ ...partial, amount: Number(e.target.value) })} /></label>
+            <label className="p-field">Reason for the deduction<input value={partial.reason} onChange={e => setPartial({ ...partial, reason: e.target.value })} /></label>
+            <button className="p-secondary" disabled={busy || !partial.amount || partial.amount * 100 >= claim.submitted_paise || !partial.reason.trim()} onClick={() => act("Claim partly approved.", `/claims/${claim.claim_id}/decision`, { outcome: "PARTIAL", approved_paise: partial.amount * 100, reason: partial.reason })}>Approve part</button></div>
+          <div className="p-decision"><b>3 · Reject</b><small>Insurer pays nothing; you can correct and resubmit.</small>
+            <label className="p-field">Reason for rejection<input value={reject} onChange={e => setReject(e.target.value)} /></label>
+            <button className="p-secondary danger" disabled={busy || !reject.trim()} onClick={() => act("Claim rejected. A notice was logged for the patient.", `/claims/${claim.claim_id}/decision`, { outcome: "REJECTED", reason: reject })}>Reject claim</button></div>
         </div>}
-        {claim?.status === "REJECTED" && <div className="p-inline-form"><input value={correction} onChange={e => setCorrection(e.target.value)} />
+        {claim?.status === "REJECTED" && <div className="p-inline-form"><label className="p-field">What was corrected<input value={correction} onChange={e => setCorrection(e.target.value)} /></label>
           <button className="p-primary" disabled={busy || !correction.trim()} onClick={() => act("Claim corrected and resubmitted.", `/claims/${claim.claim_id}/resubmit`, { correction_note: correction })}>Resubmit claim</button></div>}
         {shortfall && <div className="p-sim-box"><div className="p-mini-heading">Insurer will not pay {money(detail.payer_share_paise - (claim.status === "PARTIAL" ? claim.approved_paise : detail.payer_received_paise))}</div>
           {enc.payer_route !== "PMJAY" && <button className="p-primary" disabled={busy} onClick={() => act("Shortfall moved to the patient (self-pay path).", `/invoices/${inv.invoice_id}/shortfall`, { action: "TO_PATIENT" })}>Bill the patient</button>}
