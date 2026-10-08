@@ -6,6 +6,7 @@ import Billing from "./desks/Billing";
 import Diagnostics from "./desks/Diagnostics";
 import Doctor from "./desks/Doctor";
 import Pharmacy from "./desks/Pharmacy";
+import NewPatient from "./desks/NewPatient";
 import Reception from "./desks/Reception";
 import { Ctx, Row, Staff, Tag, api, deskTitle, initials, payerText, post, roles, statusTone } from "./lib";
 
@@ -44,6 +45,7 @@ export default function Home() {
   const [catalog, setCatalog] = useState<Row>({});
   const [visit, setVisit] = useState("");
   const [view, setView] = useState<"desk" | "map">("desk");
+  const [registering, setRegistering] = useState(false);  // Reception: new-patient screen, separate from the selected patient
 
   const refresh = useCallback(async (patientId: string, encounterId = "") => {
     const [directory, patient] = await Promise.all([api("/patients"), api(`/patients/${patientId}`)]);
@@ -113,26 +115,29 @@ export default function Home() {
   return <div className={`p-shell ${view === "map" ? "map" : ""}`}>
     <aside className="p-sidebar"><div className="p-logo dark"><span>+</span><b>Syndicate 1</b></div>
       <div className="p-side-label">SIGNED IN</div><div className="p-side-person"><span>{role?.icon}</span><div><b>{deskTitle[user.role]}</b><small>{user.display_name}</small></div></div>
-      <div className="p-side-tabs"><button className={view === "desk" ? "active" : ""} onClick={() => setView("desk")}>Desk</button><button className={view === "map" ? "active" : ""} onClick={() => setView("map")}>Data map</button></div>
-      <div className="p-side-label">PATIENTS</div>
-      <div className="p-side-list">{patients.map(row => <button key={row.patient_id} title={row.display_label} className={selected === row.patient_id ? "active" : ""} onClick={() => choose(row.patient_id)}>
+      <div className="p-side-tabs"><button className={view === "desk" ? "active" : ""} onClick={() => setView("desk")}>Desk</button><button className={view === "map" ? "active" : ""} onClick={() => { setView("map"); setRegistering(false); }}>Data map</button></div>
+      {user.role === "RECEPTION" && view === "desk" && <button className={`p-new-patient-btn ${registering ? "active" : ""}`} onClick={() => { setRegistering(true); setError(""); setNotice(""); }}>+ New patient</button>}
+      <div className="p-side-label">{user.role === "RECEPTION" ? "EXISTING PATIENTS" : "PATIENTS"}</div>
+      <div className="p-side-list">{patients.map(row => <button key={row.patient_id} title={row.display_label} className={selected === row.patient_id && !registering ? "active" : ""} onClick={() => { setRegistering(false); choose(row.patient_id); }}>
         <span className="p-avatar">{initials(row.display_label)}</span><span><b>{row.display_label}</b><small>{row.mrn} · {row.latest_status ? `${row.latest_setting} ${row.latest_status.toLowerCase()}` : "no visit"}</small></span></button>)}</div>
       <div className="p-sidebar-foot"><span className="p-dot" /> PostgreSQL connected <button onClick={logout}>Sign out ↗</button></div>
     </aside>
     <main className="p-main">
-      <header className="p-topbar"><div><div className="p-kicker">DH 308 · HIS AND BILLING</div><h1>{view === "map" ? "Data map" : deskTitle[user.role]}</h1></div>
+      <header className="p-topbar"><div><div className="p-kicker">DH 308 · HIS AND BILLING</div><h1>{view === "map" ? "Data map" : registering ? "New patient" : deskTitle[user.role]}</h1></div>
         <div className="p-topright"><Tag tone="green">Live demo</Tag><span>{user.display_name}<small>{user.role.toLowerCase()}</small></span>
           {user.role === "ADMIN" && <button onClick={resetDemo} disabled={busy}>Reset demo</button>}<button className="p-top-signout" onClick={logout}>Sign out</button></div></header>
       <div className="p-content">
         {error && <div className="p-alert error">{error}<button onClick={() => setError("")}>×</button></div>}
         {notice && <div className="p-alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
-        {view === "desk" && <section className="p-patient"><div className="p-patient-top"><div><div className="p-kicker">PATIENT · {patient.mrn}{patient.abha_number ? ` · ABHA ${patient.abha_number}` : ""}</div>
+        {view === "desk" && !registering && <section className="p-patient"><div className="p-patient-top"><div><div className="p-kicker">PATIENT · {patient.mrn}{patient.abha_number ? ` · ABHA ${patient.abha_number}` : ""}</div>
           <h2>{patient.display_label || "Choose a patient"}</h2><p>{[patient.age_years != null ? `${patient.age_years} years` : "", patient.sex, patient.city, patient.blood_group, patient.allergies].filter(Boolean).join(" · ")}</p></div>
           <div className="p-patient-tags">{enc.encounter_id ? <><Tag>{enc.setting}</Tag><Tag tone={statusTone(enc.status)}>{enc.status}</Tag><Tag tone="blue">{payerText(enc)}</Tag></> : <Tag tone="amber">No visit yet</Tag>}
             {(record.encounters || []).length > 1 && <select className="p-visit-pick" value={visit} onChange={e => refresh(selected, e.target.value)}>{record.encounters.map((e: Row) => <option key={e.encounter_id} value={e.encounter_id}>{e.encounter_id} · {e.status}</option>)}</select>}</div></div>
           {patient.history_summary && <p className="p-history">{patient.history_summary}</p>}</section>}
-        {view === "desk" && enc.encounter_id && <div className="p-flow">{steps(detail).map((s, i) => <div key={s.name} className={s.ok ? "done" : ""}><span>{s.ok ? "✓" : i + 1}</span><b>{s.name}</b><small>{s.note}</small></div>)}</div>}
-        {view === "map" ? <DataMap ctx={ctx} /> : <Desk ctx={ctx} />}
+        {view === "desk" && !registering && enc.encounter_id && <div className="p-flow">{steps(detail).map((s, i) => <div key={s.name} className={s.ok ? "done" : ""}><span>{s.ok ? "✓" : i + 1}</span><b>{s.name}</b><small>{s.note}</small></div>)}</div>}
+        {view === "map" ? <DataMap ctx={ctx} /> : registering
+          ? <NewPatient ctx={ctx} onClose={() => setRegistering(false)} onCreated={async id => { setRegistering(false); await choose(id); setNotice("Patient registered with an MRN. Add insurance, book an appointment or open a visit below."); }} />
+          : <Desk ctx={ctx} />}
       </div>
     </main>
   </div>;

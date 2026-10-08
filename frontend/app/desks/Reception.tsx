@@ -4,23 +4,18 @@ import { useState } from "react";
 import { Card, Ctx, Empty, Row, Tag, dateText, dateTime, money, payerText, statusTone, today } from "../lib";
 
 export default function Reception({ ctx }: { ctx: Ctx }) {
-  const { record, detail, catalog, busy, act, choose, selected } = ctx;
+  const { record, detail, catalog, busy, act, selected } = ctx;
   const patient = record.patient || {};
   const enc = detail.encounter || {};
   const active = enc.encounter_id && enc.status !== "BILLED";
   const policies: Row[] = record.policies || [];
   const appts: Row[] = record.appointments || [];
 
-  const [reg, setReg] = useState({ display_label: "", dob: "1990-01-01", sex: "Female", city: "Bengaluru", contact: "", abha_number: "", allergies: "" });
   const [pol, setPol] = useState({ payer_route: "PRIVATE", provider_name: "Alpha TPA", policy_no: "", valid_to: today(365), cover: 500000, copay_percent: 0 });
   const [appt, setAppt] = useState({ doctor_id: "D-01", slot_at: `${today()}T11:00`, reason: "" });
   const [visit, setVisit] = useState({ setting: "OPD", payment_mode: "SELF", policy_id: "" });
   const [deposit, setDeposit] = useState({ amount: 2000, method: "UPI" });
 
-  async function register() {
-    const created = await act("Patient registered with an MRN.", "/patients", { ...reg, abha_number: reg.abha_number.trim() });
-    if (created) { await choose(created.patient_id); setReg({ ...reg, display_label: "", abha_number: "", contact: "" }); }
-  }
   const visitBody = () => ({ ...visit, policy_id: visit.payment_mode === "SELF" ? "" : visit.policy_id || policies[0]?.policy_id || "" });
   const payerChoices = <>
     <div className="p-payer-choices">
@@ -34,22 +29,6 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
 
   return <>
     <div className="p-grid">
-      <Card title="Register a new patient" sub="Registration & intake (ABHA)" icon="R">
-        <label className="p-field">Full name<input value={reg.display_label} onChange={e => setReg({ ...reg, display_label: e.target.value })} placeholder="Synthetic name only" /></label>
-        <div className="p-two-fields">
-          <label className="p-field">Date of birth<input type="date" value={reg.dob} onChange={e => setReg({ ...reg, dob: e.target.value })} /></label>
-          <label className="p-field">Sex<select value={reg.sex} onChange={e => setReg({ ...reg, sex: e.target.value })}><option>Female</option><option>Male</option><option>Other</option></select></label>
-        </div>
-        <div className="p-two-fields">
-          <label className="p-field">City<input value={reg.city} onChange={e => setReg({ ...reg, city: e.target.value })} /></label>
-          <label className="p-field">Mobile number<input type="tel" inputMode="numeric" maxLength={10} value={reg.contact} onChange={e => setReg({ ...reg, contact: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="10 digits" />{reg.contact && <small className="p-field-hint">{reg.contact.length === 10 ? `Saved masked as ${reg.contact[0]}XXXXX${reg.contact.slice(-4)}` : `${10 - reg.contact.length} more digit${reg.contact.length === 9 ? "" : "s"}`}</small>}</label>
-        </div>
-        <label className="p-field">ABHA number (optional)<input value={reg.abha_number} onChange={e => setReg({ ...reg, abha_number: e.target.value })} placeholder="XX-XXXX-XXXX-XXXX" /></label>
-        <label className="p-field">Allergies<input value={reg.allergies} onChange={e => setReg({ ...reg, allergies: e.target.value })} placeholder="No known drug allergies" /></label>
-        <button className="p-primary" disabled={busy || !reg.display_label.trim() || (reg.contact.length > 0 && reg.contact.length !== 10)} onClick={register}>Register patient</button>
-        <p className="p-fineprint">The hospital MRN is generated automatically. ABHA links the record to the national health ID; it is optional.</p>
-      </Card>
-
       <Card title="Insurance" sub={`${patient.display_label || "Patient"} · policies on file`} icon="I">
         {policies.length ? <div className="p-summary-list">{policies.map(p => <div key={p.policy_id}><span>{p.provider_name} · {p.policy_no}<small> · {p.payer_route} · valid to {dateText(p.valid_to)}{p.copay_bps ? ` · ${p.copay_bps / 100}% co-pay` : ""}</small></span><b>{money(p.coverage_amount_paise)}</b></div>)}</div> : <Empty>No policy on file. Self-pay only until one is added.</Empty>}
         <div className="p-mini-heading">Add a policy</div>
@@ -68,9 +47,6 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
         </div>
         <button className="p-secondary" disabled={busy || !selected || pol.policy_no.trim().length < 3} onClick={() => act("Policy added.", `/patients/${selected}/policies`, { payer_route: pol.payer_route, provider_name: pol.provider_name, policy_no: pol.policy_no, valid_from: today(-30), valid_to: pol.valid_to, coverage_amount_paise: pol.cover * 100, copay_percent: pol.copay_percent, nominee: "Spouse" })}>Add policy</button>
       </Card>
-    </div>
-
-    <div className="p-grid">
       <Card title="Appointment" sub="Book, then check in on arrival" icon="A">
         {appts.length > 0 && <div className="p-summary-list">{appts.slice(0, 4).map(a => <div key={a.appointment_id}><span>{dateTime(a.slot_at)} · {a.doctor_name}<small> {a.reason}</small></span><Tag tone={statusTone(a.status === "CHECKED_IN" ? "COMPLETED" : a.status)}>{a.status.replace("_", " ")}</Tag></div>)}</div>}
         <div className="p-two-fields">
@@ -81,7 +57,9 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
         <button className="p-secondary" disabled={busy || !selected} onClick={() => act("Appointment booked. SMS confirmation logged (simulated).", "/appointments", { patient_id: selected, doctor_id: appt.doctor_id, slot_at: new Date(appt.slot_at).toISOString(), reason: appt.reason })}>Book appointment</button>
       </Card>
 
-      <Card title={active ? "Current visit" : "Check in"} sub={active ? `${enc.encounter_id} · ${enc.setting}` : "Opens the Registration for this visit"} icon="✓">
+    </div>
+
+    <Card wide title={active ? "Current visit" : "Check in"} sub={active ? `${enc.encounter_id} · ${enc.setting}` : "Opens the Registration for this visit"} icon="✓">
         {active ? <>
           <div className="p-summary-list">
             <div><span>Payment route</span><b>{payerText(enc)}</b></div>
@@ -107,7 +85,6 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
             <button className="p-secondary" disabled={busy || !selected} onClick={() => act("Walk-in visit opened.", "/encounters", { patient_id: selected, ...visitBody() })}>Walk-in visit</button>
           </div>
         </>}
-      </Card>
-    </div>
+    </Card>
   </>;
 }
