@@ -55,7 +55,7 @@ export default function Billing({ ctx }: { ctx: Ctx }) {
           {cashless && <div><span>Insurance check</span><Tag tone={statusTone(cov.eligibility_status)}>{cov.eligibility_status}</Tag></div>}
           {cashless && cov.copay_bps > 0 && <div><span>Patient co-pay</span><b>{cov.copay_bps / 100}%</b></div>}
           {cov.preauth_required && <div><span>Pre-authorisation</span>{preauth ? <span><Tag tone={statusTone(preauth.status)}>{preauth.status}</Tag> {preauth.status === "APPROVED" ? money(preauth.approved_paise) : ""}</span> : <Tag tone="amber">REQUIRED</Tag>}</div>}
-          <div><span>Diagnosis</span><b>{(detail.prescriptions || []).map((p: Row) => p.icd_code).join(", ") || "—"}</b></div>
+          <div><span>Diagnosis</span><b>{[...new Set((detail.prescriptions || []).map((p: Row) => p.icd_code))].join(", ") || "—"}</b></div>
         </div>
         <div className="p-action-row">
           {cashless && cov.eligibility_status !== "VERIFIED" && enc.status !== "BILLED" && <button className="p-secondary" disabled={busy} onClick={() => act("Insurance verified (simulated).", `/coverage/${eid}/verify`)}>Verify insurance</button>}

@@ -127,7 +127,7 @@ export default function Home() {
         {error && <div className="p-alert error">{error}<button onClick={() => setError("")}>×</button></div>}
         {notice && <div className="p-alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         {view === "desk" && <section className="p-patient"><div className="p-patient-top"><div><div className="p-kicker">PATIENT · {patient.mrn}{patient.abha_number ? ` · ABHA ${patient.abha_number}` : ""}</div>
-          <h2>{patient.display_label || "Choose a patient"}</h2><p>{patient.age_years} years · {patient.sex} · {patient.city} · {patient.blood_group} · {patient.allergies}</p></div>
+          <h2>{patient.display_label || "Choose a patient"}</h2><p>{[patient.age_years != null ? `${patient.age_years} years` : "", patient.sex, patient.city, patient.blood_group, patient.allergies].filter(Boolean).join(" · ")}</p></div>
           <div className="p-patient-tags">{enc.encounter_id ? <><Tag>{enc.setting}</Tag><Tag tone={statusTone(enc.status)}>{enc.status}</Tag><Tag tone="blue">{payerText(enc)}</Tag></> : <Tag tone="amber">No visit yet</Tag>}
             {(record.encounters || []).length > 1 && <select className="p-visit-pick" value={visit} onChange={e => refresh(selected, e.target.value)}>{record.encounters.map((e: Row) => <option key={e.encounter_id} value={e.encounter_id}>{e.encounter_id} · {e.status}</option>)}</select>}</div></div>
           {patient.history_summary && <p className="p-history">{patient.history_summary}</p>}</section>}
