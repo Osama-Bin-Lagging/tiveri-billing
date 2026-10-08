@@ -43,6 +43,8 @@ Open http://127.0.0.1:3000. `frontend/next.config.ts` sends same-origin `/api/*`
 
 At http://127.0.0.1:3000 choose Billing, Doctor, Laboratory, or Pharmacy. The password for every classroom account is `Demo@1234`. Sign out from the sidebar to change desks. The selected patient remains selected across roles.
 
+For the featured admission, Billing can choose Self-pay, Cashless claim, or Reimbursement claim before the doctor starts. Self-pay and reimbursement collect the hospital bill from the patient using UPI, cash, or card; reimbursement is then pursued by the patient with their insurer outside this demo. Cashless defaults to zero co-pay for eligible charges. It shows patient payment options for any selected co-pay or excluded non-medical expenses, while the insurer claim and settlement are recorded separately. The example does not add excluded expenses to the invoice automatically.
+
 1. Sign in as Billing, select Asha Kulkarni and review her invented history. She has no open encounter. Sign out.
 2. Sign in as Doctor with Asha selected. Review the prepared diagnosis and test mapping, edit the note if needed, and select **Create admission and send orders**. The ₹500 doctor assessment posts immediately. ICD-10 E11.9 is the diagnosis. CPT 83036 is shown as an optional procedure reference, while the hospital's own HBA1C code sets the lab price.
 3. Sign in as Laboratory. Asha's HbA1c order displays LOINC 4548-4. Enter the synthetic result and select **Complete test and post charge**. The ₹650 lab charge appears once on the running bill.

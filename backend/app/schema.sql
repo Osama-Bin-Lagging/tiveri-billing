@@ -11,6 +11,18 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS city TEXT NOT NULL DEFAULT '';
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS allergies TEXT NOT NULL DEFAULT '';
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS history_summary TEXT NOT NULL DEFAULT '';
 
+CREATE TABLE IF NOT EXISTS admission_plans (
+  patient_id TEXT PRIMARY KEY REFERENCES patients(patient_id),
+  payer_route TEXT NOT NULL CHECK (payer_route IN ('SELF','PRIVATE')),
+  payment_mode TEXT NOT NULL DEFAULT 'SELF' CHECK (payment_mode IN ('SELF','CASHLESS','REIMBURSEMENT')),
+  payer_label TEXT NOT NULL DEFAULT 'Self pay',
+  member_ref TEXT NOT NULL DEFAULT '',
+  copay_bps INTEGER NOT NULL DEFAULT 0 CHECK (copay_bps BETWEEN 0 AND 10000),
+  selected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE admission_plans ADD COLUMN IF NOT EXISTS payment_mode TEXT NOT NULL DEFAULT 'SELF'
+  CHECK (payment_mode IN ('SELF','CASHLESS','REIMBURSEMENT'));
+
 CREATE TABLE IF NOT EXISTS staff_users (
   username TEXT PRIMARY KEY,
   display_name TEXT NOT NULL,
@@ -75,6 +87,8 @@ CREATE TABLE IF NOT EXISTS coverages (
   eligibility_status TEXT NOT NULL DEFAULT 'UNVERIFIED_DEMO',
   preauth_required BOOLEAN NOT NULL DEFAULT false
 );
+ALTER TABLE coverages ADD COLUMN IF NOT EXISTS copay_bps INTEGER NOT NULL DEFAULT 0
+  CHECK (copay_bps BETWEEN 0 AND 10000);
 
 CREATE TABLE IF NOT EXISTS tax_rules (
   rule_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -226,6 +240,10 @@ CREATE TABLE IF NOT EXISTS invoices (
   advance_allocated_paise BIGINT NOT NULL DEFAULT 0 CHECK (advance_allocated_paise >= 0),
   issued_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_share_paise BIGINT NOT NULL DEFAULT 0
+  CHECK (patient_share_paise >= 0);
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payer_share_paise BIGINT NOT NULL DEFAULT 0
+  CHECK (payer_share_paise >= 0);
 
 CREATE TABLE IF NOT EXISTS invoice_lines (
   invoice_line_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

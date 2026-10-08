@@ -18,6 +18,28 @@
 .p-invoice-payment .p-field{max-width:160px;flex:0 0 160px}
 .p-invoice-payment .p-primary{width:auto}
 .p-invoice-sheet>.p-fineprint{margin:0;padding:0 25px 20px}
+.p-cashless-panel{border-top:1px solid #dcebe7;background:#f4faf8;padding:23px 25px}
+.p-cashless-head{display:flex;justify-content:space-between;gap:20px;align-items:start}
+.p-cashless-head h3{margin:0 0 6px;color:#173e4c;font-size:18px}
+.p-cashless-head p{margin:0;max-width:670px;color:#607b84;font-size:12px;line-height:1.5}
+.p-cashless-head>span{background:#e1f1ed;color:#176772;padding:7px 10px;border-radius:7px;font-size:11px;font-weight:700;white-space:nowrap}
+.p-cashless-split{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}
+.p-cashless-split>div{background:#fff;border:1px solid #dfebe7;border-radius:9px;padding:14px}
+.p-cashless-split small,.p-cashless-split b{display:block}
+.p-cashless-split small{color:#6d858c;font-size:11px}
+.p-cashless-split b{color:#0c6671;font-size:18px;margin-top:5px}
+.p-cashless-method{max-width:210px}
+.p-out-of-pocket{background:#fff;border-left:3px solid #0c8f93;border-radius:7px;padding:11px 13px;color:#486b75;font-size:12px;line-height:1.5}
+.p-cashless-method{max-width:none;margin-top:14px}
+.p-cashless-method>span{display:block;font-size:11px;font-weight:700;color:#486b75;margin-bottom:9px}
+.p-payment-method-options{display:flex;flex-wrap:wrap;gap:8px}
+.p-payment-method-options button{border:1px solid #c8e0dc;border-radius:8px;background:#fff;color:#226772;padding:9px 17px;font-size:12px;font-weight:700;cursor:pointer}
+.p-payment-method-options button.selected{border-color:#0c8f93;background:#e3f5f1;color:#075d67}
+.p-reimbursement-panel{padding:18px 25px;border-top:1px solid #dcebe7;background:#f4faf8}
+.p-reimbursement-panel h3{margin:0 0 6px;color:#173e4c;font-size:16px}
+.p-reimbursement-panel p{margin:0;color:#607b84;font-size:12px;line-height:1.5}
+.p-cashless-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
+.p-cashless-actions button{width:auto}
 .p-payer-status{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;background:#f4f9f7;border-radius:10px;padding:15px}
 .p-payer-status span,.p-payer-status b{display:block}
 .p-payer-status span{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#729099}
@@ -30,5 +52,5 @@
 .p-tax-review p{font-size:12px;color:#6a8188;margin:0}
 .p-tax-review>.p-secondary{width:auto;margin:0}
 .p-tax-results{width:100%;border-top:1px solid #e0eceb;padding-top:12px;display:flex;gap:22px;color:#2e6269;font-size:12px;font-weight:700}
-@media(max-width:650px){.p-invoice-toolbar,.p-invoice-payment{display:block}.p-invoice-toolbar>div:last-child{margin-top:12px}.p-invoice-meta,.p-payer-status{grid-template-columns:1fr}.p-invoice-payment .p-primary{margin-top:10px}.p-invoice-totals{margin-right:20px}}
-@media print{body{background:#fff!important}body *{visibility:hidden!important}.p-invoice-sheet,.p-invoice-sheet *{visibility:visible!important}.p-invoice-sheet{position:absolute!important;left:0;top:0;width:100%;margin:0;box-shadow:none;border:0}.p-invoice-toolbar button,.p-invoice-payment{display:none!important}.p-invoice-toolbar{background:#fff}.p-invoice-sheet>.p-fineprint{font-size:10px}}
+@media(max-width:650px){.p-invoice-toolbar,.p-invoice-payment,.p-cashless-head{display:block}.p-invoice-toolbar>div:last-child{margin-top:12px}.p-invoice-meta,.p-payer-status,.p-cashless-split{grid-template-columns:1fr}.p-invoice-payment .p-primary{margin-top:10px}.p-invoice-totals{margin-right:20px}.p-cashless-head>span{display:inline-block;margin-top:12px}}
+@media print{body{background:#fff!important}body *{visibility:hidden!important}.p-invoice-sheet,.p-invoice-sheet *{visibility:visible!important}.p-invoice-sheet{position:absolute!important;left:0;top:0;width:100%;margin:0;box-shadow:none;border:0}.p-invoice-toolbar button,.p-invoice-payment,.p-cashless-actions,.p-cashless-method{display:none!important}.p-invoice-toolbar{background:#fff}.p-invoice-sheet>.p-fineprint{font-size:10px}}

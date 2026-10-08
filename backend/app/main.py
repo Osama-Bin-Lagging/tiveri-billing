@@ -26,7 +26,7 @@ DEMO_MODE = os.getenv("DEMO_MODE", "1") == "1"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 ROUTES = {"SELF", "PRIVATE", "PMJAY", "CGHS", "CORPORATE"}
 SETTINGS = {"OPD", "IPD", "EMERGENCY", "DAY_CARE"}
-PUBLIC_TABLES = ("patients", "encounters", "coverages", "tax_rules", "services", "lab_catalog", "lab_orders", "payer_rates", "pharmacy_items", "stock_batches", "package_catalog", "room_stays", "charges", "dispenses", "preauths", "invoices", "invoice_lines", "claims", "advances", "receipts", "refunds", "audit_events")
+PUBLIC_TABLES = ("patients", "admission_plans", "encounters", "coverages", "tax_rules", "services", "lab_catalog", "lab_orders", "payer_rates", "pharmacy_items", "stock_batches", "package_catalog", "room_stays", "charges", "dispenses", "preauths", "invoices", "invoice_lines", "claims", "advances", "receipts", "refunds", "audit_events")
 TABLES = PUBLIC_TABLES + ("staff_users", "auth_sessions", "clinical_notes", "prescriptions")
 
 
@@ -104,11 +104,23 @@ def latest_approved_preauth(conn: psycopg.Connection, encounter_id: str) -> dict
 
 
 def balance_for(conn: psycopg.Connection, invoice: dict) -> dict:
-    paid = one(conn, "SELECT COALESCE(sum(amount_paise),0) AS amount FROM receipts WHERE invoice_id=%s",
-               (invoice["invoice_id"],))["amount"]
-    return {"paid_paise": paid + invoice["advance_allocated_paise"],
-            "receipts_paise": paid,
-            "remaining_paise": invoice["total_paise"] - invoice["advance_allocated_paise"] - paid}
+    received = one(conn, """SELECT COALESCE(sum(amount_paise),0) AS total,
+        COALESCE(sum(amount_paise) FILTER (WHERE payer_kind='PATIENT'),0) AS patient,
+        COALESCE(sum(amount_paise) FILTER (WHERE payer_kind<>'PATIENT'),0) AS payer
+        FROM receipts WHERE invoice_id=%s""", (invoice["invoice_id"],))
+    patient_share = invoice["patient_share_paise"]
+    payer_share = invoice["payer_share_paise"]
+    if patient_share + payer_share != invoice["total_paise"]:
+        # Invoices created before the payer-share migration retain their original route.
+        enc = encounter_for(conn, invoice["encounter_id"])
+        patient_share = invoice["total_paise"] if enc["payer_route"] == "SELF" else 0
+        payer_share = invoice["total_paise"] - patient_share
+    patient_due = max(0, patient_share - invoice["advance_allocated_paise"] - received["patient"])
+    payer_due = max(0, payer_share - received["payer"])
+    return {"paid_paise": received["total"] + invoice["advance_allocated_paise"],
+            "receipts_paise": received["total"], "patient_share_paise": patient_share,
+            "payer_share_paise": payer_share, "patient_due_paise": patient_due,
+            "payer_due_paise": payer_due, "remaining_paise": patient_due + payer_due}
 
 
 def create_charge(conn: psycopg.Connection, encounter_id: str, service_code: str, quantity: int,
@@ -239,6 +251,8 @@ def seed_demo(conn: psycopg.Connection) -> None:
     conn.execute("""INSERT INTO patients(patient_id,display_label,age_years,sex,blood_group,contact_masked,city,allergies,history_summary)
         VALUES ('P-DEMO-09','Asha Kulkarni',52,'Female','O+','9XXXXX1209','Bengaluru',
         'No known drug allergies','Known type 2 diabetes. Referred for a short admission to review repeated high glucose readings and the treatment plan. No documented complications. Prior HbA1c result is not imported into this demo.')""")
+    conn.execute("""INSERT INTO admission_plans(patient_id,payer_route,payer_label)
+        VALUES ('P-DEMO-09','SELF','Self pay')""")
     for eid, note_text in [
         ("E-OPD-01", "Fever and fatigue for three days. CBC requested. Review hydration and temperature."),
         ("E-IPD-02", "Admitted for planned procedure. Review medication allergy before any dispensing."),
@@ -353,11 +367,19 @@ class PrescriptionIn(BaseModel):
 
 class DemoEncounterIn(BaseModel):
     patient_id: str
-    case_code: str = "DIABETES_FOLLOWUP"
+    case_code: str = "DIABETES_OBSERVATION"
     note_text: str = Field(min_length=15, max_length=2000)
     medicine_item_code: str = "MED-M"
     medicine_quantity: int = Field(default=10, ge=1, le=100)
     instruction: str = Field(default="Existing medicine reviewed; take only as prescribed by the treating doctor.", max_length=300)
+
+
+class AdmissionPlanIn(BaseModel):
+    payer_route: str
+    payment_mode: str = ""
+    payer_label: str = ""
+    member_ref: str = Field(default="", max_length=60)
+    copay_percent: int = Field(default=0, ge=0, le=100)
 
 
 class LabResultIn(BaseModel):
@@ -429,11 +451,15 @@ def create_demo_clinical_encounter(data: DemoEncounterIn, request: Request):
              "This teaching pathway requires the diabetes observation patient")
         need(not one(conn, "SELECT 1 FROM encounters WHERE patient_id=%s AND status='OPEN'", (data.patient_id,)),
              "This patient already has an open encounter", 409)
+        plan = need(one(conn, "SELECT * FROM admission_plans WHERE patient_id=%s", (data.patient_id,)),
+                    "Billing must save a payment route before this admission")
         eid = f"E-{uuid4().hex[:9].upper()}"
         conn.execute("""INSERT INTO encounters(encounter_id,patient_id,setting,payer_route,payer_label)
-            VALUES (%s,%s,'IPD','SELF','Self pay')""", (eid, data.patient_id))
-        conn.execute("""INSERT INTO coverages(coverage_id,encounter_id,payer_route,payer_label,member_ref)
-            VALUES (%s,%s,'SELF','Self pay',%s)""", (f"C-{eid}", eid, f"SYN-{eid}"))
+            VALUES (%s,%s,'IPD',%s,%s)""", (eid, data.patient_id, plan["payer_route"], plan["payer_label"]))
+        conn.execute("""INSERT INTO coverages(coverage_id,encounter_id,payer_route,payer_label,
+            member_ref,preauth_required,copay_bps) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            (f"C-{eid}", eid, plan["payer_route"], plan["payer_label"],
+             plan["member_ref"] or f"SYN-{eid}", plan["payer_route"] == "PRIVATE", plan["copay_bps"]))
         note = one(conn, """INSERT INTO clinical_notes(encounter_id,author_username,note_text,
             provisional_icd_code,procedure_code) VALUES (%s,%s,%s,'E11.9','83036') RETURNING *""",
             (eid, request.state.user["username"], data.note_text.strip()))
@@ -622,9 +648,37 @@ def patient_detail(patient_id: str):
         patient = need(one(conn, "SELECT * FROM patients WHERE patient_id=%s", (patient_id,)),
                        "Patient not found", 404)
         return {"patient": patient,
+                "admission_plan": one(conn, "SELECT * FROM admission_plans WHERE patient_id=%s", (patient_id,)),
                 "encounters": rows(conn, """SELECT encounter_id,setting,payer_route,status,opened_at
                     FROM encounters WHERE patient_id=%s ORDER BY opened_at DESC,encounter_id DESC""",
                     (patient_id,))}
+
+
+@app.post("/api/admission-plans/{patient_id}")
+def choose_admission_plan(patient_id: str, data: AdmissionPlanIn):
+    need(patient_id == "P-DEMO-09", "The admission-plan choice is for the featured synthetic patient", 404)
+    payment_mode = data.payment_mode or ("CASHLESS" if data.payer_route == "PRIVATE" else "SELF")
+    need(payment_mode in {"SELF", "CASHLESS", "REIMBURSEMENT"},
+         "Choose self-pay, cashless, or reimbursement")
+    need(data.payer_route == ("PRIVATE" if payment_mode == "CASHLESS" else "SELF"),
+         "Payment mode and payer route do not match")
+    if payment_mode == "CASHLESS":
+        need(data.payer_label in {"Alpha TPA", "Bharat TPA", "City TPA"}, "Choose a demo insurer/TPA")
+        need(data.member_ref.strip(), "Enter a synthetic policy reference")
+    with db() as conn:
+        need(not one(conn, "SELECT 1 FROM encounters WHERE patient_id=%s", (patient_id,)),
+             "The payment route is fixed once the admission starts. Reset the demo to change it.", 409)
+        label = data.payer_label if payment_mode == "CASHLESS" else "Self pay"
+        member = data.member_ref.strip() if payment_mode == "CASHLESS" else ""
+        copay_bps = data.copay_percent * 100 if payment_mode == "CASHLESS" else 0
+        plan = one(conn, """INSERT INTO admission_plans(patient_id,payer_route,payment_mode,payer_label,member_ref,copay_bps)
+            VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(patient_id) DO UPDATE SET
+            payer_route=EXCLUDED.payer_route,payment_mode=EXCLUDED.payment_mode,payer_label=EXCLUDED.payer_label,
+            member_ref=EXCLUDED.member_ref,copay_bps=EXCLUDED.copay_bps,selected_at=now()
+            RETURNING *""", (patient_id, data.payer_route, payment_mode, label, member, copay_bps))
+        audit(conn, "ADMISSION_PAYER_SELECTED", "patient", patient_id,
+              {"payer_route": plan["payer_route"], "payment_mode": payment_mode, "copay_bps": copay_bps})
+        return plan
 
 
 @app.get("/api/encounters/{encounter_id}")
@@ -634,14 +688,22 @@ def encounter_detail(encounter_id: str):
         inv = one(conn, "SELECT * FROM invoices WHERE encounter_id=%s", (encounter_id,))
         charges = rows(conn, "SELECT * FROM charges WHERE encounter_id=%s ORDER BY charge_id", (encounter_id,))
         preview = sum(c["subtotal_paise"] + tax_amount(c["subtotal_paise"], c["tax_rate_bps"]) for c in charges)
+        cov = one(conn, "SELECT * FROM coverages WHERE encounter_id=%s", (encounter_id,))
         if inv:
             balance = balance_for(conn, inv)
         else:
             advance = one(conn, "SELECT COALESCE(sum(amount_paise),0) AS n FROM advances WHERE encounter_id=%s", (encounter_id,))["n"]
-            balance = {"paid_paise": advance, "receipts_paise": 0, "remaining_paise": max(0, preview - advance)}
+            patient_share = (preview if enc["payer_route"] == "SELF" else
+                             tax_amount(preview, cov["copay_bps"]) if enc["payer_route"] == "PRIVATE" else 0)
+            payer_share = preview - patient_share
+            allocated = min(advance, patient_share)
+            balance = {"paid_paise": allocated, "receipts_paise": 0,
+                       "patient_share_paise": patient_share, "payer_share_paise": payer_share,
+                       "patient_due_paise": patient_share - allocated,
+                       "payer_due_paise": payer_share, "remaining_paise": preview - allocated}
         return {"encounter": enc,
                 "patient": one(conn, "SELECT * FROM patients WHERE patient_id=%s", (enc["patient_id"],)),
-                "coverage": one(conn, "SELECT * FROM coverages WHERE encounter_id=%s", (encounter_id,)),
+                "coverage": cov,
                 "charges": charges,
                 "room_stays": rows(conn, "SELECT * FROM room_stays WHERE encounter_id=%s ORDER BY room_stay_id", (encounter_id,)),
                 "dispenses": rows(conn, "SELECT * FROM dispenses WHERE encounter_id=%s ORDER BY dispense_id", (encounter_id,)),
@@ -708,12 +770,17 @@ def finalize_invoice_core(conn: psycopg.Connection, encounter_id: str, bypass_pr
     subtotal = sum(c["subtotal_paise"] for c in charges)
     tax = sum(tax_amount(c["subtotal_paise"], c["tax_rate_bps"]) for c in charges)
     total = subtotal + tax
+    patient_share = (total if enc["payer_route"] == "SELF" else
+                     tax_amount(total, cov["copay_bps"]) if enc["payer_route"] == "PRIVATE" else 0)
+    payer_share = total - patient_share
     advances = one(conn, "SELECT COALESCE(sum(amount_paise),0) AS n FROM advances WHERE encounter_id=%s", (encounter_id,))["n"]
-    allocated = min(total, advances)
+    allocated = min(patient_share, advances)
     inv_id = one(conn, "SELECT nextval(pg_get_serial_sequence('invoices','invoice_id')) AS n")["n"]
     invoice = one(conn, """INSERT INTO invoices(invoice_id,encounter_id,invoice_no,subtotal_paise,tax_paise,
-        total_paise,advance_allocated_paise) OVERRIDING SYSTEM VALUE VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-        (inv_id, encounter_id, f"TVR-{date.today().year}-{inv_id:05d}", subtotal, tax, total, allocated))
+        total_paise,advance_allocated_paise,patient_share_paise,payer_share_paise)
+        OVERRIDING SYSTEM VALUE VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+        (inv_id, encounter_id, f"TVR-{date.today().year}-{inv_id:05d}", subtotal, tax,
+         total, allocated, patient_share, payer_share))
     for c in charges:
         line_tax = tax_amount(c["subtotal_paise"], c["tax_rate_bps"])
         conn.execute("""INSERT INTO invoice_lines(invoice_id,charge_id,description,department,quantity,
@@ -902,8 +969,10 @@ def submit_claim(data: ClaimIn):
         pre = latest_approved_preauth(conn, enc["encounter_id"])
         if cov["preauth_required"]:
             need(pre, "Approved demo pre-authorisation required")
-        submitted = invoice["total_paise"] - invoice["advance_allocated_paise"]
+        submitted = balance_for(conn, invoice)["payer_share_paise"]
         need(submitted > 0, "Nothing remains to claim")
+        if pre:
+            need(submitted <= pre["approved_paise"], "Cashless approval is below insurer share; request an enhancement")
         record = one(conn, """INSERT INTO claims(invoice_id,coverage_id,preauth_id,submitted_paise,
             diagnosis_code,procedure_code,discharge_summary,documents) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
             (data.invoice_id, cov["coverage_id"], pre["preauth_id"] if pre else None,
@@ -933,13 +1002,18 @@ def add_receipt(data: ReceiptIn):
         enc = encounter_for(conn, invoice["encounter_id"])
         if enc["payer_route"] == "PMJAY":
             need(data.payer_kind == "SCHEME", "PM-JAY patient co-payment is blocked")
+        balance = balance_for(conn, invoice)
+        if data.payer_kind == "PATIENT":
+            need(data.amount_paise <= balance["patient_due_paise"], "Receipt exceeds patient share")
+        else:
+            need(data.amount_paise <= balance["payer_due_paise"], "Receipt exceeds payer share")
         if data.payer_kind in {"INSURER", "SCHEME", "CORPORATE"}:
             claim = need(one(conn, "SELECT * FROM claims WHERE invoice_id=%s", (data.invoice_id,)), "Submit a payer claim first")
             need(claim["status"] == "APPROVED_DEMO", "Simulated claim approval required before payer settlement")
             received = one(conn, """SELECT COALESCE(sum(amount_paise),0) AS n FROM receipts
                 WHERE invoice_id=%s AND payer_kind=%s""", (data.invoice_id, data.payer_kind))["n"]
             need(data.amount_paise <= claim["approved_paise"] - received, "Receipt exceeds approved claim balance")
-        remaining = balance_for(conn, invoice)["remaining_paise"]
+        remaining = balance["remaining_paise"]
         need(data.amount_paise <= remaining, "Receipt exceeds outstanding balance")
         record = one(conn, """INSERT INTO receipts(invoice_id,payer_kind,amount_paise,method,reference_no)
             VALUES (%s,%s,%s,%s,%s) RETURNING *""", (data.invoice_id, data.payer_kind,

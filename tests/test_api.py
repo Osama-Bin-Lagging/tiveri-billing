@@ -217,3 +217,111 @@ def test_doctor_lab_pharmacy_invoice_handoff():
         final = call(client, "GET", f"/api/encounters/{eid}")
         assert len(final["invoice_lines"]) == 4
         assert final["lab_orders"][0]["status"] == "COMPLETED"
+
+
+def test_cashless_admission_with_patient_copay():
+    with TestClient(app) as client:
+        as_role(client, "admin")
+        call(client, "POST", "/api/demo/reset", {})
+        as_role(client, "admin")
+        plan = call(client, "POST", "/api/admission-plans/P-DEMO-09", {
+            "payer_route": "PRIVATE", "payment_mode": "CASHLESS", "payer_label": "Alpha TPA",
+            "member_ref": "SYN-POL-ASH-01", "copay_percent": 10})
+        assert plan["copay_bps"] == 1000
+        assert plan["payment_mode"] == "CASHLESS"
+        assert call(client, "GET", "/api/patients/P-DEMO-09")["admission_plan"]["payer_route"] == "PRIVATE"
+        start = {"patient_id": "P-DEMO-09", "case_code": "DIABETES_OBSERVATION",
+                 "note_text": "Type 2 diabetes assessment during synthetic observation admission.",
+                 "medicine_item_code": "MED-M", "medicine_quantity": 10}
+        as_role(client, "doctor")
+        call(client, "POST", "/api/admission-plans/P-DEMO-09", {
+            "payer_route": "SELF"}, 403)
+        visit = call(client, "POST", "/api/clinical/demo-encounters", start)
+        eid = visit["encounter_id"]
+        assert visit["consultation_charge"]["subtotal_paise"] == 43000  # Alpha TPA rate
+        detail = call(client, "GET", f"/api/encounters/{eid}")
+        assert detail["coverage"]["copay_bps"] == 1000
+        assert detail["coverage"]["preauth_required"] is True
+        as_role(client, "lab")
+        call(client, "POST", f"/api/lab/orders/{visit['lab_order']['lab_order_id']}/complete",
+             {"result_value": 7.2})
+        as_role(client, "pharmacy")
+        call(client, "POST", "/api/pharmacy/dispense", {
+            "encounter_id": eid, "item_code": "MED-M", "quantity": 10,
+            "prescription_ref": visit["prescription"]["prescription_ref"],
+            "source_event_id": "TEST-CASHLESS-METFORMIN"})
+        as_role(client, "admin")
+        call(client, "POST", f"/api/encounters/{eid}/room-stays", {
+            "room_code": "PRIVATE_ROOM", "start_date": "2026-10-08", "end_date": "2026-10-09"})
+        call(client, "POST", "/api/invoices", {"encounter_id": eid}, 400)
+        pre = call(client, "POST", "/api/preauth", {"encounter_id": eid, "requested_paise": 1500000})
+        call(client, "POST", f"/api/preauth/{pre['preauth_id']}/decision",
+             {"approved_paise": 1500000, "reference_no": "SYN-PRE-ASH"})
+        invoice = call(client, "POST", "/api/invoices", {"encounter_id": eid})
+        assert invoice["total_paise"] == 744000
+        assert invoice["patient_share_paise"] == 74400
+        assert invoice["payer_share_paise"] == 669600
+        call(client, "POST", "/api/receipts", {
+            "invoice_id": invoice["invoice_id"], "payer_kind": "PATIENT",
+            "amount_paise": 74401, "method": "UPI"}, 400)
+        claim = call(client, "POST", "/api/claims", {
+            "invoice_id": invoice["invoice_id"],
+            "discharge_summary": "Synthetic inpatient discharge summary",
+            "documents": {"itemised_bill": True, "discharge_summary": True}})
+        assert claim["submitted_paise"] == 669600
+        call(client, "POST", "/api/receipts", {
+            "invoice_id": invoice["invoice_id"], "payer_kind": "INSURER",
+            "amount_paise": 669600, "method": "TRANSFER"}, 400)
+        call(client, "POST", "/api/receipts", {
+            "invoice_id": invoice["invoice_id"], "payer_kind": "PATIENT",
+            "amount_paise": 74400, "method": "UPI"})
+        call(client, "POST", f"/api/claims/{claim['claim_id']}/decision",
+             {"approved_paise": 669600, "reference_no": "SYN-CLM-ASH"})
+        call(client, "POST", "/api/receipts", {
+            "invoice_id": invoice["invoice_id"], "payer_kind": "INSURER",
+            "amount_paise": 669600, "method": "TRANSFER"})
+        final = call(client, "GET", f"/api/encounters/{eid}")
+        assert (final["patient_due_paise"], final["payer_due_paise"], final["remaining_paise"]) == (0, 0, 0)
+
+
+def test_reimbursement_admission_is_paid_by_patient():
+    with TestClient(app) as client:
+        as_role(client, "admin")
+        call(client, "POST", "/api/demo/reset", {})
+        as_role(client, "admin")
+        plan = call(client, "POST", "/api/admission-plans/P-DEMO-09", {
+            "payer_route": "SELF", "payment_mode": "REIMBURSEMENT"})
+        assert plan["payment_mode"] == "REIMBURSEMENT"
+        assert plan["payer_route"] == "SELF"
+        call(client, "POST", "/api/admission-plans/P-DEMO-09", {
+            "payer_route": "PRIVATE", "payment_mode": "REIMBURSEMENT"}, 400)
+        as_role(client, "doctor")
+        visit = call(client, "POST", "/api/clinical/demo-encounters", {
+            "patient_id": "P-DEMO-09", "case_code": "DIABETES_OBSERVATION",
+            "note_text": "Synthetic inpatient diabetes observation and HbA1c request.",
+            "medicine_item_code": "MED-M", "medicine_quantity": 10})
+        eid = visit["encounter_id"]
+        as_role(client, "lab")
+        call(client, "POST", f"/api/lab/orders/{visit['lab_order']['lab_order_id']}/complete",
+             {"result_value": 7.2})
+        as_role(client, "pharmacy")
+        call(client, "POST", "/api/pharmacy/dispense", {
+            "encounter_id": eid, "item_code": "MED-M", "quantity": 10,
+            "prescription_ref": visit["prescription"]["prescription_ref"],
+            "source_event_id": "TEST-REIMBURSE-METFORMIN"})
+        as_role(client, "admin")
+        call(client, "POST", f"/api/encounters/{eid}/room-stays", {
+            "room_code": "PRIVATE_ROOM", "start_date": "2026-10-08", "end_date": "2026-10-09"})
+        invoice = call(client, "POST", "/api/invoices", {"encounter_id": eid})
+        assert invoice["total_paise"] == 751000
+        assert invoice["patient_share_paise"] == 751000
+        assert invoice["payer_share_paise"] == 0
+        call(client, "POST", "/api/claims", {
+            "invoice_id": invoice["invoice_id"],
+            "discharge_summary": "Synthetic discharge summary for reimbursement",
+            "documents": {"itemised_bill": True, "discharge_summary": True}}, 400)
+        call(client, "POST", "/api/receipts", {
+            "invoice_id": invoice["invoice_id"], "payer_kind": "PATIENT",
+            "amount_paise": 751000, "method": "UPI"})
+        final = call(client, "GET", f"/api/encounters/{eid}")
+        assert (final["patient_due_paise"], final["payer_due_paise"], final["remaining_paise"]) == (0, 0, 0)
