@@ -170,8 +170,8 @@ def test_doctor_lab_pharmacy_invoice_handoff():
         directory = call(client, "GET", "/api/patients")["patients"]
         patient = next(row for row in directory if row["patient_id"] == "P-DEMO-09")
         assert patient["latest_encounter_id"] is None
-        start = {"patient_id": "P-DEMO-09", "case_code": "DIABETES_FOLLOWUP",
-                 "note_text": "Known type 2 diabetes without documented complications; follow-up review completed.",
+        start = {"patient_id": "P-DEMO-09", "case_code": "DIABETES_OBSERVATION",
+                 "note_text": "Known type 2 diabetes without documented complications; inpatient assessment completed.",
                  "medicine_item_code": "MED-M", "medicine_quantity": 10}
         call(client, "POST", "/api/clinical/demo-encounters", start, 403)
         as_role(client, "doctor")
@@ -182,6 +182,7 @@ def test_doctor_lab_pharmacy_invoice_handoff():
         assert visit["consultation_charge"]["subtotal_paise"] == 50000
         call(client, "POST", "/api/clinical/demo-encounters", start, 409)
         before = call(client, "GET", f"/api/encounters/{eid}")
+        assert before["encounter"]["setting"] == "IPD"
         assert len(before["charges"]) == 1
         assert before["lab_orders"][0]["loinc_code"] == "4548-4"
         order_id = before["lab_orders"][0]["lab_order_id"]
@@ -200,15 +201,19 @@ def test_doctor_lab_pharmacy_invoice_handoff():
         dispensed = call(client, "POST", "/api/pharmacy/dispense", {
             "encounter_id": eid, "item_code": "MED-M", "quantity": 10,
             "prescription_ref": prescription["prescription_ref"], "source_event_id": "TEST-METFORMIN-DISPENSE"})
-        assert dispensed["charge"]["tax_rate_bps"] == 500
+        assert dispensed["charge"]["tax_rate_bps"] == 0
         assert dispensed["charge"]["subtotal_paise"] == 6000
         detail = call(client, "GET", f"/api/encounters/{eid}")
         assert {charge["service_code"] for charge in detail["charges"]} == {"CONSULT", "HBA1C", "MED_M"}
-        assert detail["running_total_paise"] == 121300
+        assert detail["running_total_paise"] == 121000
 
         as_role(client, "admin")
+        stay = call(client, "POST", f"/api/encounters/{eid}/room-stays", {
+            "room_code": "PRIVATE_ROOM", "start_date": "2026-10-08", "end_date": "2026-10-09"})
+        assert stay["charges"][0]["tax_rate_bps"] == 500
+        assert stay["charges"][0]["subtotal_paise"] == 600000
         invoice = call(client, "POST", "/api/invoices", {"encounter_id": eid})
-        assert invoice["total_paise"] == 121300
+        assert invoice["total_paise"] == 751000
         final = call(client, "GET", f"/api/encounters/{eid}")
-        assert len(final["invoice_lines"]) == 3
+        assert len(final["invoice_lines"]) == 4
         assert final["lab_orders"][0]["status"] == "COMPLETED"

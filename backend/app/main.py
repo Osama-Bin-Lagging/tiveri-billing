@@ -157,7 +157,7 @@ def seed_demo(conn: psycopg.Connection) -> None:
     conn.cursor().executemany("""INSERT INTO tax_rules(rule_code,effective_from,tax_category,rate_bps,hsn_sac,note)
         VALUES (%s,'2026-01-01',%s,%s,%s,%s)""", rules)
     services = [
-        ("CONSULT", "OPD consultation", "OPD", "CARE", 50000, "CARE_EXEMPT"),
+        ("CONSULT", "Doctor assessment", "CLINICAL", "CARE", 50000, "CARE_EXEMPT"),
         ("CBC", "Complete blood count", "LAB", "LAB", 35000, "CARE_EXEMPT"),
         ("HBA1C", "HbA1c blood test", "LAB", "LAB", 65000, "CARE_EXEMPT"),
         ("XRAY", "X-ray investigation", "RADIOLOGY", "LAB", 90000, "CARE_EXEMPT"),
@@ -238,7 +238,7 @@ def seed_demo(conn: psycopg.Connection) -> None:
                                             f"SYN-{pid}", route in {"PRIVATE", "PMJAY"} and setting == "IPD"))
     conn.execute("""INSERT INTO patients(patient_id,display_label,age_years,sex,blood_group,contact_masked,city,allergies,history_summary)
         VALUES ('P-DEMO-09','Asha Kulkarni',52,'Female','O+','9XXXXX1209','Bengaluru',
-        'No known drug allergies','Known type 2 diabetes. Returning for a planned OPD review; no documented complications. Prior HbA1c result is not imported into this demo.')""")
+        'No known drug allergies','Known type 2 diabetes. Referred for a short admission to review repeated high glucose readings and the treatment plan. No documented complications. Prior HbA1c result is not imported into this demo.')""")
     for eid, note_text in [
         ("E-OPD-01", "Fever and fatigue for three days. CBC requested. Review hydration and temperature."),
         ("E-IPD-02", "Admitted for planned procedure. Review medication allergy before any dispensing."),
@@ -420,18 +420,18 @@ def add_prescription(data: PrescriptionIn, request: Request):
 @app.post("/api/clinical/demo-encounters")
 def create_demo_clinical_encounter(data: DemoEncounterIn, request: Request):
     """A clinician confirms a preconfigured pathway; no free-text code inference is performed."""
-    need(data.case_code == "DIABETES_FOLLOWUP", "Unknown demo pathway")
+    need(data.case_code == "DIABETES_OBSERVATION", "Unknown demo pathway")
     need(data.medicine_item_code == "MED-M", "This pathway uses the metformin training SKU")
     with db() as conn:
         patient = need(one(conn, "SELECT * FROM patients WHERE patient_id=%s FOR UPDATE", (data.patient_id,)),
                        "Patient not found", 404)
         need("type 2 diabetes" in patient["history_summary"].lower(),
-             "This teaching pathway requires the diabetes follow-up patient")
+             "This teaching pathway requires the diabetes observation patient")
         need(not one(conn, "SELECT 1 FROM encounters WHERE patient_id=%s AND status='OPEN'", (data.patient_id,)),
              "This patient already has an open encounter", 409)
         eid = f"E-{uuid4().hex[:9].upper()}"
         conn.execute("""INSERT INTO encounters(encounter_id,patient_id,setting,payer_route,payer_label)
-            VALUES (%s,%s,'OPD','SELF','Self pay')""", (eid, data.patient_id))
+            VALUES (%s,%s,'IPD','SELF','Self pay')""", (eid, data.patient_id))
         conn.execute("""INSERT INTO coverages(coverage_id,encounter_id,payer_route,payer_label,member_ref)
             VALUES (%s,%s,'SELF','Self pay',%s)""", (f"C-{eid}", eid, f"SYN-{eid}"))
         note = one(conn, """INSERT INTO clinical_notes(encounter_id,author_username,note_text,

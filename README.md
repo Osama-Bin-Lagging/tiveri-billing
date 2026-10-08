@@ -2,7 +2,7 @@
 
 A working DH 308 teaching prototype for an Indian hospital. The website uses Next.js, the API uses FastAPI, and records persist in PostgreSQL. All patient labels, payer references, prices and clinical details are invented.
 
-The visible demo has four staff desks: doctor, laboratory, pharmacy, and billing. They share an existing patient record. A doctor-confirmed follow-up pathway creates an encounter with ICD-10 E11.9, an HbA1c order with LOINC 4548-4 and an optional CPT 83036 reference, a prescription, and a consultation charge. Completing the lab result and dispensing the medicine add their own charges to the same running bill. The billing desk generates and displays the itemised invoice on the same page. The API also supports OPD, IPD, emergency and day care encounters, payer rates, packages, advances and refunds, simulated TPA and PM-JAY workflows, claims, receipts, GSTR-1 review, receivables, reports, and an audit trail.
+The visible demo has four staff desks: doctor, laboratory, pharmacy, and billing. They share an existing patient record. A doctor-confirmed observation admission creates an inpatient encounter with ICD-10 E11.9, an HbA1c order with LOINC 4548-4 and an optional CPT 83036 reference, a prescription, and a doctor assessment charge. Completing the lab result and dispensing the medicine add their own charges to the same running bill. Billing then records a one-day private room stay and generates the itemised admission invoice on the same page. The API also supports outpatient, emergency and day care encounters, payer rates, packages, advances and refunds, simulated TPA and PM-JAY workflows, claims, receipts, GSTR-1 review, receivables, reports, and an audit trail.
 
 External insurer, PM-JAY, CGHS and GST portal actions are simulated. Do not enter real patient details or use the demo tax settings for real invoices. The local demo accounts use a shared training password and are not suitable for a live hospital.
 
@@ -44,11 +44,11 @@ Open http://127.0.0.1:3000. `frontend/next.config.ts` sends same-origin `/api/*`
 At http://127.0.0.1:3000 choose Billing, Doctor, Laboratory, or Pharmacy. The password for every classroom account is `Demo@1234`. Sign out from the sidebar to change desks. The selected patient remains selected across roles.
 
 1. Sign in as Billing, select Asha Kulkarni and review her invented history. She has no open encounter. Sign out.
-2. Sign in as Doctor with Asha selected. Review the prepared diagnosis and test mapping, edit the note if needed, and select **Create encounter and send orders**. The consultation charge posts immediately. ICD-10 E11.9 is the diagnosis. CPT 83036 is shown as an optional procedure reference, while the hospital's own HBA1C code sets the price.
+2. Sign in as Doctor with Asha selected. Review the prepared diagnosis and test mapping, edit the note if needed, and select **Create admission and send orders**. The ₹500 doctor assessment posts immediately. ICD-10 E11.9 is the diagnosis. CPT 83036 is shown as an optional procedure reference, while the hospital's own HBA1C code sets the lab price.
 3. Sign in as Laboratory. Asha's HbA1c order displays LOINC 4548-4. Enter the synthetic result and select **Complete test and post charge**. The ₹650 lab charge appears once on the running bill.
-4. Sign in as Pharmacy. Dispense the 10 training metformin tablets from stock. This separate OPD pharmacy sale adds ₹60 plus ₹3 GST at the training rate. The catalog also shows a nil-rated contraceptive training SKU.
-5. Sign in as Billing again. Asha's running bill has consultation, lab and pharmacy lines. Select **Generate itemised invoice**. The synthetic total is ₹1,213.00 and the invoice appears on the same page.
-6. For the room example, select Rohan Iyer (E-IPD-08) and add a one-day ₹6,000 private room stay. The specified non-ICU room service shows 5% GST in this training rule. Dev Mehta and Farah Khan retain simulated TPA and PM-JAY cases.
+4. Sign in as Pharmacy. Dispense the 10 training metformin tablets from stock. This adds ₹60 to the inpatient treatment bill without a separate medicine GST charge in the prototype. The catalog also shows separate-sale medicine GST settings and a nil-rated training SKU.
+5. Sign in as Billing again. Select the ₹6,000/day private non-ICU room and keep the one-day dates. Click **Add bed / room charge**. The training room rule adds ₹300 GST to that room line, subject to the official conditions.
+6. Asha's running bill now has doctor, lab, medicine and room lines. Select **Generate itemised invoice**. The synthetic total is ₹7,510.00 and the invoice appears on the same page. Dev Mehta and Farah Khan retain simulated TPA and PM-JAY cases.
 
 ## Scope of the prototype
 
@@ -75,7 +75,7 @@ cd frontend
 npm run build
 ```
 
-The API tests reset the synthetic database and exercise the doctor, laboratory, pharmacy and billing handoff, role access, duplicate lab completion, prescription-linked dispensing, nil and 5% tax examples, inpatient treatment supply, room rent, OPD, TPA, PM-JAY, packages, payment, refunds, tax review and receivables. The four role screens and same-page invoice were also checked in a live browser against the local servers.
+The API tests reset the synthetic database and exercise the doctor, laboratory, pharmacy, bed and billing handoff, role access, duplicate lab completion, prescription-linked dispensing, nil and 5% tax examples, inpatient treatment supply, room rent, outpatient billing, TPA, PM-JAY, packages, payment, refunds, tax review and receivables. The four role screens and same-page invoice were also checked in a live browser against the local servers.
 
 ## Project layout
 
