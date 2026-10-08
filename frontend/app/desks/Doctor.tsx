@@ -5,6 +5,24 @@ import { Card, Ctx, Empty, Row, Tag, dateTime, money, statusTone } from "../lib"
 
 type Med = { item_code: string; quantity: number; instruction: string };
 
+// "12-16" or "< 5" → HIGH / LOW / null (unparsed ranges are not flagged).
+function flag(value: number, range: string): "HIGH" | "LOW" | null {
+  const span = range.match(/^\s*([\d.]+)\s*-\s*([\d.]+)/);
+  if (span) return value < Number(span[1]) ? "LOW" : value > Number(span[2]) ? "HIGH" : null;
+  const below = range.match(/^\s*<\s*([\d.]+)/);
+  return below && value >= Number(below[1]) ? "HIGH" : null;
+}
+
+function Result({ o }: { o: Row }) {
+  if (o.kind === "LAB" && o.result_value != null) {
+    const f = flag(Number(o.result_value), o.reference_range || "");
+    return <span className="p-result"><b>{Number(o.result_value)} {o.result_unit}</b>{f && <Tag tone="red">{f}</Tag>}<small>ref {o.reference_range} · {dateTime(o.report_date)}</small></span>;
+  }
+  if (o.kind === "RADIOLOGY" && o.findings) return <span className="p-result"><b>{o.findings}</b><small>{dateTime(o.report_date)}</small></span>;
+  if (o.kind === "PROCEDURE" && o.outcome_notes) return <span className="p-result"><b>{o.outcome_notes}</b><small>{dateTime(o.performed_at)}</small></span>;
+  return <small className="p-muted">{["LAB", "RADIOLOGY"].includes(o.kind) && o.status === "ORDERED" ? "Awaiting result" : "—"}</small>;
+}
+
 export default function Doctor({ ctx }: { ctx: Ctx }) {
   const { detail, catalog, busy, act } = ctx;
   const enc = detail.encounter || {};
@@ -81,8 +99,8 @@ export default function Doctor({ ctx }: { ctx: Ctx }) {
     </div>
 
     <Card title="Orders and admission" sub={admitted ? `Admitted · ${admitted.ward_name} since ${admitted.start_date}` : (detail.prescriptions || []).map((p: Row) => `${p.icd_code} ${p.diagnosis}`).join(" · ") || "No prescription yet"} icon="≡" wide>
-      {orders.length ? <div className="p-table"><table><thead><tr><th>Order</th><th>Code</th><th>Status</th><th></th></tr></thead><tbody>
-        {orders.map(o => <tr key={`${o.kind}-${o.id}`}><td><b>{o.description}</b><small> {o.kind.toLowerCase()}</small></td><td>{o.code}</td><td><Tag tone={statusTone(o.status)}>{o.status}</Tag></td>
+      {orders.length ? <div className="p-table"><table><thead><tr><th>Order</th><th>Code</th><th>Status</th><th>Result</th><th></th></tr></thead><tbody>
+        {orders.map(o => <tr key={`${o.kind}-${o.id}`}><td><b>{o.description}</b><small> {o.kind.toLowerCase()}</small></td><td>{o.code}</td><td><Tag tone={statusTone(o.status)}>{o.status}</Tag></td><td><Result o={o} /></td>
           <td className="p-row-actions">{open && o.kind === "PROCEDURE" && o.status === "ORDERED" && <button className="p-secondary" disabled={busy} onClick={() => act("Procedure recorded; charge posted.", `/procedures/${o.id}/perform`, { outcome_notes: outcome })}>Perform</button>}
             {open && ["ORDERED", "PARTIAL"].includes(o.status) && <button className="p-link" disabled={busy} onClick={() => act("Order cancelled. It will not be charged.", "/clinical/orders/cancel", { kind: o.kind, order_id: o.id, reason: "Cancelled by doctor" })}>Cancel</button>}</td></tr>)}
       </tbody></table></div> : <Empty>No orders yet.</Empty>}

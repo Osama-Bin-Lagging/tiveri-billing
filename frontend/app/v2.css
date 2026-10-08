@@ -134,3 +134,4 @@
 
 .p-dmx-zoom{top:auto;bottom:44px}
 .p-field-hint{font-weight:500;color:#5b7480;font-size:12px;margin-top:2px}
+.p-result{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}.p-result small{width:100%;color:#5b7480}.p-result b{font-weight:700}
