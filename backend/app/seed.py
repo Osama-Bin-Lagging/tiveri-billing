@@ -308,7 +308,7 @@ def seed_demo(conn) -> None:
                   labs=["CBC"], procedures=["PHYSIO_OUT"], admit=clinical.AdmitIn(ward_id="W-SEMI"))
     _complete_all(conn, "E-IPD-08", rx)
     # A second HIS feed sends the same CBC again (manual capture, no completed order behind it).
-    create_charge(conn, "doctor3", "E-IPD-08", "CBC", 1, "HIS-MANUAL-CBC-0808", source_type="HIS_EVENT")
+    create_charge(conn, "doctor3", "E-IPD-08", "CBC", 1, "HIS:MANUAL-CBC-0808", source_type="HIS_EVENT")
     clinical.discharge(conn, "doctor3", "E-IPD-08")
 
     # 10. Sanjay: past self-pay OPD bill, 40 days old and unpaid (reminder demo).

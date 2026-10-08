@@ -138,7 +138,8 @@ def create_charge(conn: psycopg.Connection, who: str, encounter_id: str, service
     encounter = encounter_for(conn, encounter_id, True)
     existing = one(conn, "SELECT * FROM charges WHERE source_event_id=%s", (source_event_id,))
     if existing:
-        if (existing["encounter_id"], existing["service_code"], existing["quantity"]) != (encounter_id, service_code, quantity):
+        if (existing["encounter_id"], existing["service_code"], existing["quantity"], existing["source_type"]) != \
+                (encounter_id, service_code, quantity, source_type):
             raise HTTPException(409, "This event ID belongs to a different charge")
         return {"charge": existing, "duplicate": True}
     need(encounter["status"] == "OPEN" or allow_closed, "Charges need an open visit")

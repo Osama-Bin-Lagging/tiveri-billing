@@ -193,6 +193,22 @@ def test_d_pmjay_package_keeps_original_prices(client):
          "amount_paise": 100, "method": "CASH"}, 400)
 
 
+def test_his_events_cannot_bypass_desks_or_squat_event_ids(client):
+    as_role(client, "doctor")
+    detail = call(client, "GET", "/api/encounters/E-OPD-01")
+    ns1 = next(o for o in detail["lab_orders"] if o["status"] == "ORDERED")
+    for code in ("MED_PCM", "PMJAY_PKG", "WARD_PRIVATE"):
+        call(client, "POST", "/api/his/events", {"encounter_id": "E-OPD-01", "service_code": code, "quantity": 1,
+             "source_event_id": f"T-BYPASS-{code}"}, 400)
+    # Try to pre-claim the ID the lab desk will use for this order.
+    squat = call(client, "POST", "/api/his/events", {"encounter_id": "E-OPD-01", "service_code": "DENGUE_NS1",
+                 "quantity": 1, "source_event_id": f"LAB-ORDER-{ns1['lab_order_id']}"})
+    assert squat["charge"]["source_event_id"].startswith("HIS:")
+    as_role(client, "lab")
+    done = call(client, "POST", f"/api/lab/orders/{ns1['lab_order_id']}/complete", {"result_value": 1.2})
+    assert not done["duplicate"] and done["charge"]["charge_id"] != squat["charge"]["charge_id"]
+
+
 def test_cancelled_order_is_not_charged(client):
     as_role(client, "doctor")
     detail = call(client, "GET", "/api/encounters/E-OPD-01")

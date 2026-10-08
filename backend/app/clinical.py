@@ -272,8 +272,9 @@ def report_radiology(conn, who: str, rad_order_id: int, findings: str) -> dict:
 # --- pharmacy -------------------------------------------------------------
 
 def dispense_core(conn, who: str, data: DispenseIn) -> dict:
+    event_id = f"DISP:{data.source_event_id.strip()}"
     existing = one(conn, """SELECT d.*,c.source_event_id FROM dispenses d JOIN charges c USING(charge_id)
-        WHERE c.source_event_id=%s""", (data.source_event_id,))
+        WHERE c.source_event_id=%s""", (event_id,))
     if existing:
         need((existing["pharm_order_id"], existing["quantity"]) == (data.pharm_order_id, data.quantity),
              "This dispense event ID has a different payload", 409)
@@ -294,7 +295,9 @@ def dispense_core(conn, who: str, data: DispenseIn) -> dict:
     # Medicines supplied during an admission form part of exempt inpatient care; OPD sales follow the item rule.
     rule = "CARE_EXEMPT" if enc["setting"] == "IPD" else service["tax_rule_code"]
     need(tax_for(conn, rule)["tax_category"] != "REVIEW", "This item's GST classification needs review first")
-    charge = create_charge(conn, who, order["encounter_id"], item["service_code"], data.quantity, data.source_event_id,
+    need(not one(conn, "SELECT 1 FROM charges WHERE source_event_id=%s", (event_id,)),
+         "This dispense event ID is already used", 409)
+    charge = create_charge(conn, who, order["encounter_id"], item["service_code"], data.quantity, event_id,
                            source_type="DISPENSE", source_id=str(data.pharm_order_id), tax_rule_override=rule)["charge"]
     conn.execute("UPDATE stock_batches SET quantity_available=quantity_available-%s WHERE batch_id=%s",
                  (data.quantity, batch["batch_id"]))
@@ -348,10 +351,16 @@ def discharge_visit(encounter_id: str, request: Request):
 
 @router.post("/api/his/events")
 def his_event(data: HisEventIn, request: Request):
-    """Generic HIS charge event (legacy/manual capture). The pre-bill audit flags charges with no completed source."""
+    """Generic HIS charge event (legacy/manual capture). The pre-bill audit flags charges with no completed source.
+    Only services that have no workflow of their own may be posted here, and the event ID is namespaced so it can
+    never collide with the IDs the desks generate (LAB-ORDER-n, CONSULT-n, ROOM-n, ...)."""
     with db() as conn:
+        service = one(conn, "SELECT kind FROM services WHERE service_code=%s", (data.service_code,))
+        need(service, "Service not found", 404)
+        need(service["kind"] in {"CARE", "LAB", "RADIOLOGY", "PROCEDURE"},
+             "Medicines, ward days and packages are charged through their own desks, not as HIS events")
         return create_charge(conn, actor(request), data.encounter_id, data.service_code, data.quantity,
-                             data.source_event_id, source_type="HIS_EVENT")
+                             f"HIS:{data.source_event_id.strip()}", source_type="HIS_EVENT")
 
 
 @router.post("/api/lab/orders/{lab_order_id}/complete")
