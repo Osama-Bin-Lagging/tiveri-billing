@@ -22,12 +22,12 @@ export default function Pharmacy({ ctx }: { ctx: Ctx }) {
       {orders.length ? orders.map(o => {
         const left = o.quantity - Number(o.dispensed_quantity);
         const item = stock.find(s => s.item_code === o.item_code);
-        const n = qty[o.pharm_order_id] ?? left;
+        const n = Math.min(qty[o.pharm_order_id] ?? left, left);
         return <div className="p-order" key={o.pharm_order_id}>
           <div><b>{o.display_name}</b><small>{o.dispensed_quantity}/{o.quantity} given · {o.instruction || "as directed"} · {item ? `${item.available_units} in stock · ${money(item.unit_price_paise)} each · ${ipd ? "exempt (IPD)" : item.tax_category === "NIL" ? "nil GST" : `${item.tax_rate_bps / 100}% GST`}` : ""}</small></div>
           {["ORDERED", "PARTIAL"].includes(o.status) && enc.status === "OPEN" ? <div className="p-order-input">
             <input type="number" min={1} max={left} value={n} onChange={e => setQty({ ...qty, [o.pharm_order_id]: Number(e.target.value) })} />
-            <button className="p-primary" disabled={busy || n < 1 || n > left} onClick={() => act("Dispensed from the earliest-expiring batch; stock and bill updated.", "/pharmacy/dispense", { pharm_order_id: o.pharm_order_id, quantity: n, source_event_id: `DISP-${crypto.randomUUID()}` })}>Dispense</button>
+            <button className="p-primary" disabled={busy || n < 1 || n > left} onClick={async () => { if (await act("Dispensed from the earliest-expiring batch; stock and bill updated.", "/pharmacy/dispense", { pharm_order_id: o.pharm_order_id, quantity: n, source_event_id: `DISP-${crypto.randomUUID()}` })) { const { [o.pharm_order_id]: _, ...rest } = qty; setQty(rest); } }}>Dispense</button>
           </div> : <Tag tone={statusTone(o.status)}>{o.status}</Tag>}
         </div>;
       }) : <Empty>No medicines prescribed on this visit.</Empty>}
