@@ -308,3 +308,10 @@ def test_removing_a_package_restores_the_original_bill(client):
     call(client, "POST", "/api/packages/apply", {"encounter_id": "E-IPD-03", "package_code": "HBP-DEMO-01"})
     again = call(client, "GET", "/api/encounters/E-IPD-03")
     assert sum(c["subtotal_paise"] for c in again["charges"]) == sum(c["subtotal_paise"] for c in before["charges"])
+
+
+def test_data_map_timeline_lists_each_event_once(client):
+    as_role(client, "admin")
+    for pid in ("P-DEMO-01", "P-DEMO-02", "P-DEMO-03"):
+        ids = [t["audit_id"] for t in call(client, "GET", f"/api/datamap/{pid}")["timeline"]]
+        assert len(ids) == len(set(ids))

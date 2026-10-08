@@ -224,7 +224,7 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
 
         {tab === "timeline" && <div className="p-dmx-timeline">{timeline.map(t => <button key={t.audit_id}
           onClick={() => { const k = keyOfTable[t.entity]; if (k) { const row = (data?.entities?.[k]?.rows || []).find((x: Row) => String(x[pkOf(k)]) === String(t.entity_id)); goTo(k, row); } }}>
-          <small>{dateTime(t.created_at)}</small><b>{t.action.replaceAll("_", " ").toLowerCase()}</b><span>{t.actor} · {byKey[keyOfTable[t.entity]]?.er_name || t.entity} #{t.entity_id}</span></button>)}</div>}
+          <small>{dateTime(t.created_at)}</small><b>{t.action.replaceAll("_", " ").toLowerCase()}</b><span>{t.actor} · {byKey[keyOfTable[t.entity]]?.er_name || t.entity.replaceAll("_", " ")} #{t.entity_id}</span></button>)}</div>}
       </aside>
     </div>
   </div>;

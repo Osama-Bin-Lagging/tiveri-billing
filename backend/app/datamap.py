@@ -50,6 +50,16 @@ ENTITIES = [
     ("claim", "Insurance Claim", "claims", "entity", "INSURANCE", 870, 50, INV),
     ("insurance", "Insurance", "insurance_policies", "entity", "INSURANCE", 1035, 50, "patient_id=%(p)s"),
 ]
+# Timeline only (not drawn): workflow tables the ER diagram leaves out.
+_VISIT = "encounter_id = ANY(%(e)s)"
+WORKFLOW_LOG = [
+    ("appointments", "appointment_id", "patient_id = %(p)s AND (encounter_id IS NULL OR encounter_id = ANY(%(e)s))"),
+    ("notifications", "notification_id", "patient_id = %(p)s AND (encounter_id IS NULL OR encounter_id = ANY(%(e)s))"),
+    ("coverages", "coverage_id", _VISIT), ("advances", "advance_id", _VISIT), ("preauths", "preauth_id", _VISIT),
+    ("refunds", "refund_id", _VISIT),
+    ("balance_adjustments", "adjustment_id", "invoice_id IN (SELECT invoice_id FROM invoices WHERE " + _VISIT + ")"),
+]
+
 LANES = [
     {"label": "PATIENT & VISIT · HIS", "x": 14, "y": 18, "w": 506, "h": 400},
     {"label": "CLINICAL ORDERS → RESULTS", "x": 14, "y": 446, "w": 666, "h": 228},
@@ -160,6 +170,10 @@ def datamap(patient_id: str, encounter_id: str = ""):
             data[key] = {"count": len(records), "rows": records}
             pk = pk_of[key]
             pairs += [(table, str(r[pk])) for r in records if pk in r]
+        # Workflow tables are not on the diagram, but their events belong in the who-did-what timeline.
+        log_pairs = list(pairs)
+        for table, pk, scope in WORKFLOW_LOG:
+            log_pairs += [(table, str(r[pk])) for r in rows(conn, f"SELECT {pk} FROM {table} WHERE {scope}", params)]
         # The first audit event of each record: shows who created it and when.
         first_seen = {(r["entity"], r["entity_id"]): r["seq"] for r in rows(conn, """SELECT a.entity, a.entity_id,
             min(a.audit_id) AS seq FROM audit_events a JOIN unnest(%s::text[], %s::text[]) AS t(entity, entity_id)
@@ -175,6 +189,6 @@ def datamap(patient_id: str, encounter_id: str = ""):
                     seq = seq_of(parents[table][0], r.get(parents[table][1]))
                 r["_seq"] = seq
         timeline = rows(conn, """SELECT a.* FROM audit_events a
-            JOIN unnest(%s::text[], %s::text[]) AS t(entity, entity_id) USING (entity, entity_id)
-            ORDER BY a.audit_id LIMIT 400""", ([p[0] for p in pairs], [p[1] for p in pairs]))
+            WHERE (a.entity, a.entity_id) IN (SELECT * FROM unnest(%s::text[], %s::text[]))
+            ORDER BY a.audit_id LIMIT 400""", ([p[0] for p in log_pairs], [p[1] for p in log_pairs]))
         return {"patient_id": patient_id, "encounter_ids": encounters, "entities": data, "timeline": timeline}
