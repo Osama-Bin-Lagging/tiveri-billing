@@ -130,7 +130,28 @@ def reverse_charge(conn, who: str, charge_id: int, reason: str) -> dict:
     need(enc["status"] != "BILLED", "The bill is already final; corrections after billing need a credit note")
     need(not one(conn, "SELECT 1 FROM charges WHERE reverses_charge_id=%s", (charge_id,)),
          "This charge is already reversed or included in a package", 409)
-    return offset_charge(conn, who, charge, "REVERSAL", reason.strip())
+    reversal = offset_charge(conn, who, charge, "REVERSAL", reason.strip())
+    if one(conn, "SELECT 1 FROM services WHERE service_code=%s AND kind='PACKAGE'", (charge["service_code"],)):
+        restore_package_items(conn, who, charge["encounter_id"], charge["source_id"])
+    return reversal
+
+
+def restore_package_items(conn, who: str, encounter_id: str, package_code: str) -> None:
+    """Package removed: re-post every service it absorbed at its original price. The PACKAGE_ADJ lines stay as history.
+    The copy keeps the original service date so the duplicate check still matches it to the delivered service."""
+    absorbed = rows(conn, """SELECT o.*, a.charge_id AS adj_id FROM charges a JOIN charges o ON o.charge_id=a.reverses_charge_id
+        WHERE a.encounter_id=%s AND a.charge_type='PACKAGE_ADJ'
+        AND NOT EXISTS (SELECT 1 FROM charges r WHERE r.source_event_id='REPOST-' || a.charge_id)
+        ORDER BY o.charge_id""", (encounter_id,))
+    for o in absorbed:
+        row = one(conn, """INSERT INTO charges(encounter_id,source_event_id,source_type,source_id,service_code,description,
+            department,quantity,unit_price_paise,tax_rule_code,tax_category,tax_rate_bps,hsn_sac,reason,created_by,
+            room_stay_id,created_at) VALUES (%s,%s,'REPOST',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+            (encounter_id, f"REPOST-{o['adj_id']}", str(o["charge_id"]), o["service_code"], o["description"],
+             o["department"], o["quantity"], o["unit_price_paise"], o["tax_rule_code"], o["tax_category"],
+             o["tax_rate_bps"], o["hsn_sac"], f"Package {package_code} removed; restored at original price", who,
+             o["room_stay_id"], o["created_at"]))
+        audit(conn, who, "CHARGE_RESTORED", "charges", row["charge_id"], {"restores_charge_id": o["charge_id"]})
 
 
 def apply_package(conn, who: str, encounter_id: str, package_code: str) -> dict:
@@ -140,7 +161,9 @@ def apply_package(conn, who: str, encounter_id: str, package_code: str) -> dict:
     package = need(one(conn, "SELECT * FROM package_catalog WHERE package_code=%s", (package_code,)), "Package not found", 404)
     need(package["payer_route"] == enc["payer_route"], "This package is not offered for this payer")
     need(not applied_package(conn, encounter_id), "A package is already applied", 409)
-    charge = create_charge(conn, who, encounter_id, package["service_code"], 1, f"PKG-{encounter_id}-{package_code}",
+    attempt = one(conn, "SELECT count(*)+1 AS n FROM charges WHERE encounter_id=%s AND source_type='PACKAGE'", (encounter_id,))["n"]
+    event_id = f"PKG-{encounter_id}-{package_code}" + (f"-{attempt}" if attempt > 1 else "")  # re-apply after removal
+    charge = create_charge(conn, who, encounter_id, package["service_code"], 1, event_id,
                            source_type="PACKAGE", source_id=package_code, allow_closed=True)["charge"]
     for c in active_charges(conn, encounter_id):
         if c["kind"] in package["included_kinds"]:

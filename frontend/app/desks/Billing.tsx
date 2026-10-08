@@ -91,7 +91,7 @@ export default function Billing({ ctx }: { ctx: Ctx }) {
     <Card title={inv ? `Bill ${inv.invoice_no}` : "Running bill"} sub={inv ? `Issued ${dateText(inv.issued_at)} · due ${dateText(inv.due_date)}` : "Charges post as each service is completed"} icon="₹" wide>
       {charges.length ? <div className="p-table"><table><thead><tr><th>Service</th><th>Qty × rate</th><th>GST</th><th>Amount</th><th></th></tr></thead><tbody>
         {charges.map(c => <tr key={c.charge_id} className={c.charge_type !== "CHARGE" ? "p-offset" : c.offset_applied ? "p-struck" : ""}>
-          <td><b>{c.description}</b>{typeLabel[c.charge_type] && <Tag tone={c.charge_type === "REVERSAL" ? "red" : "blue"}>{typeLabel[c.charge_type]}</Tag>}<small> {c.source_type.replaceAll("_", " ").toLowerCase()}{c.reason ? ` · ${c.reason}` : ""}</small></td>
+          <td><b>{c.description}</b>{typeLabel[c.charge_type] && <Tag tone={c.charge_type === "REVERSAL" ? "red" : "blue"}>{typeLabel[c.charge_type]}</Tag>}{c.source_type === "REPOST" && <Tag tone="green">Restored</Tag>}<small> {c.source_type.replaceAll("_", " ").toLowerCase()}{c.reason ? ` · ${c.reason}` : ""}</small></td>
           <td>{c.quantity} × {money(c.unit_price_paise)}</td>
           <td>{c.tax_category === "TAXABLE" ? `${c.tax_rate_bps / 100}%` : c.tax_category.toLowerCase()}</td>
           <td>{money(c.subtotal_paise + lineTax(c))}</td>

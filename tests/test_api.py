@@ -289,3 +289,22 @@ def test_contact_is_ten_digits_and_stored_masked_and_short_notes_are_allowed(cli
     enc = call(client, "POST", "/api/encounters", {"patient_id": patient["patient_id"], "setting": "OPD", "payment_mode": "SELF"})
     as_role(client, "doctor")
     call(client, "POST", "/api/clinical/consultations", {"encounter_id": enc["encounter_id"], "notes": "ok"})
+
+
+def test_removing_a_package_restores_the_original_bill(client):
+    as_role(client, "admin")
+    before = call(client, "GET", "/api/encounters/E-IPD-03")
+    pkg = next(c for c in before["charges"] if c["kind"] == "PACKAGE" and c["charge_type"] == "CHARGE")
+    absorbed = [c for c in before["charges"] if c["charge_type"] == "PACKAGE_ADJ"]
+    assert absorbed
+    call(client, "POST", f"/api/charges/{pkg['charge_id']}/reverse", {"reason": "Wrong package"})
+    after = call(client, "GET", "/api/encounters/E-IPD-03")
+    restored = [c for c in after["charges"] if c["source_type"] == "REPOST"]
+    assert sorted(c["service_code"] for c in restored) == sorted(c["service_code"] for c in absorbed)
+    # Total is back to the sum of the original item prices (package line and its reversal cancel out).
+    items = sum(c["quantity"] * c["unit_price_paise"] for c in absorbed)
+    assert sum(c["subtotal_paise"] for c in after["charges"]) == items
+    # The package can be applied again, and its new offsets absorb the restored copies.
+    call(client, "POST", "/api/packages/apply", {"encounter_id": "E-IPD-03", "package_code": "HBP-DEMO-01"})
+    again = call(client, "GET", "/api/encounters/E-IPD-03")
+    assert sum(c["subtotal_paise"] for c in again["charges"]) == sum(c["subtotal_paise"] for c in before["charges"])
