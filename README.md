@@ -2,7 +2,7 @@
 
 A working DH 308 teaching prototype for an Indian hospital. The website uses Next.js, the API uses FastAPI, and records persist in PostgreSQL. All patient labels, payer references, prices and clinical details are invented.
 
-The visible demo has three staff desks: doctor, pharmacy, and billing. They share patient history, doctor notes with provisional ICD-10 and hospital service codes, prescriptions, batch-tracked dispensing, delivered service events, and a running bill. The billing desk generates and displays the itemised invoice on the same page. The API also supports OPD, IPD, emergency and day care encounters, payer rates, packages, advances and refunds, simulated TPA and PM-JAY workflows, claims, receipts, GSTR-1 review, receivables, reports, and an audit trail.
+The visible demo has four staff desks: doctor, laboratory, pharmacy, and billing. They share an existing patient record. A doctor-confirmed follow-up pathway creates an encounter with ICD-10 E11.9, an HbA1c order with LOINC 4548-4 and an optional CPT 83036 reference, a prescription, and a consultation charge. Completing the lab result and dispensing the medicine add their own charges to the same running bill. The billing desk generates and displays the itemised invoice on the same page. The API also supports OPD, IPD, emergency and day care encounters, payer rates, packages, advances and refunds, simulated TPA and PM-JAY workflows, claims, receipts, GSTR-1 review, receivables, reports, and an audit trail.
 
 External insurer, PM-JAY, CGHS and GST portal actions are simulated. Do not enter real patient details or use the demo tax settings for real invoices. The local demo accounts use a shared training password and are not suitable for a live hospital.
 
@@ -41,13 +41,14 @@ Open http://127.0.0.1:3000. `frontend/next.config.ts` sends same-origin `/api/*`
 
 ## Demo sign-in and handoff
 
-At http://127.0.0.1:3000 choose Billing desk, Doctor, or Pharmacy. The password for every classroom account is `Demo@1234`. Sign out from the sidebar to change desks.
+At http://127.0.0.1:3000 choose Billing, Doctor, Laboratory, or Pharmacy. The password for every classroom account is `Demo@1234`. Sign out from the sidebar to change desks. The selected patient remains selected across roles.
 
-1. Sign in as Doctor. Open Ananya Rao (E-OPD-01), review her invented history, save a note with a provisional ICD-10 code, mark an investigation delivered, and prescribe a medicine.
-2. Sign out and enter as Pharmacy. Select Ananya's prescription and dispense it. The stock count falls and the charge appears on her running bill. The catalog shows a 5% medicine and a nil-rated contraceptive training SKU.
-3. Sign out and enter the Billing desk. Select Ananya, click Generate invoice, and review the itemised invoice that appears on the same page. Record a sample UPI receipt if wanted.
-4. For the room example, select Rohan Iyer (E-IPD-08) and add a one-day ₹6,000 private room stay. The specified non-ICU room service shows 5% GST in this training rule.
-5. For payer examples, select Dev Mehta for a simulated private TPA preauthorisation and claim, or Farah Khan for a simulated PM-JAY eligibility check and package claim.
+1. Sign in as Billing, select Asha Kulkarni and review her invented history. She has no open encounter. Sign out.
+2. Sign in as Doctor with Asha selected. Review the prepared diagnosis and test mapping, edit the note if needed, and select **Create encounter and send orders**. The consultation charge posts immediately. ICD-10 E11.9 is the diagnosis. CPT 83036 is shown as an optional procedure reference, while the hospital's own HBA1C code sets the price.
+3. Sign in as Laboratory. Asha's HbA1c order displays LOINC 4548-4. Enter the synthetic result and select **Complete test and post charge**. The ₹650 lab charge appears once on the running bill.
+4. Sign in as Pharmacy. Dispense the 10 training metformin tablets from stock. This separate OPD pharmacy sale adds ₹60 plus ₹3 GST at the training rate. The catalog also shows a nil-rated contraceptive training SKU.
+5. Sign in as Billing again. Asha's running bill has consultation, lab and pharmacy lines. Select **Generate itemised invoice**. The synthetic total is ₹1,213.00 and the invoice appears on the same page.
+6. For the room example, select Rohan Iyer (E-IPD-08) and add a one-day ₹6,000 private room stay. The specified non-ICU room service shows 5% GST in this training rule. Dev Mehta and Farah Khan retain simulated TPA and PM-JAY cases.
 
 ## Scope of the prototype
 
@@ -74,7 +75,7 @@ cd frontend
 npm run build
 ```
 
-The API tests reset the synthetic database and exercise role access, clinical notes, prescription-linked dispensing, nil and 5% tax examples, inpatient treatment supply, room rent, OPD, TPA, PM-JAY, packages, payment, refunds, tax review and receivables. The three role screens and same-page invoice are also checked in a live browser against the local servers.
+The API tests reset the synthetic database and exercise the doctor, laboratory, pharmacy and billing handoff, role access, duplicate lab completion, prescription-linked dispensing, nil and 5% tax examples, inpatient treatment supply, room rent, OPD, TPA, PM-JAY, packages, payment, refunds, tax review and receivables. The four role screens and same-page invoice were also checked in a live browser against the local servers.
 
 ## Project layout
 

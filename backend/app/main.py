@@ -26,7 +26,7 @@ DEMO_MODE = os.getenv("DEMO_MODE", "1") == "1"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 ROUTES = {"SELF", "PRIVATE", "PMJAY", "CGHS", "CORPORATE"}
 SETTINGS = {"OPD", "IPD", "EMERGENCY", "DAY_CARE"}
-PUBLIC_TABLES = ("patients", "encounters", "coverages", "tax_rules", "services", "payer_rates", "pharmacy_items", "stock_batches", "package_catalog", "room_stays", "charges", "dispenses", "preauths", "invoices", "invoice_lines", "claims", "advances", "receipts", "refunds", "audit_events")
+PUBLIC_TABLES = ("patients", "encounters", "coverages", "tax_rules", "services", "lab_catalog", "lab_orders", "payer_rates", "pharmacy_items", "stock_batches", "package_catalog", "room_stays", "charges", "dispenses", "preauths", "invoices", "invoice_lines", "claims", "advances", "receipts", "refunds", "audit_events")
 TABLES = PUBLIC_TABLES + ("staff_users", "auth_sessions", "clinical_notes", "prescriptions")
 
 
@@ -62,6 +62,7 @@ def seed_staff(conn: psycopg.Connection) -> None:
     for username, display_name, role in [
         ("admin", "Riya Menon", "ADMIN"),
         ("doctor", "Dr Mira Sen", "DOCTOR"),
+        ("lab", "Arjun Nair", "LAB"),
         ("pharmacy", "Nisha Shah", "PHARMACY"),
     ]:
         salt = secrets.token_hex(16)
@@ -158,11 +159,13 @@ def seed_demo(conn: psycopg.Connection) -> None:
     services = [
         ("CONSULT", "OPD consultation", "OPD", "CARE", 50000, "CARE_EXEMPT"),
         ("CBC", "Complete blood count", "LAB", "LAB", 35000, "CARE_EXEMPT"),
+        ("HBA1C", "HbA1c blood test", "LAB", "LAB", 65000, "CARE_EXEMPT"),
         ("XRAY", "X-ray investigation", "RADIOLOGY", "LAB", 90000, "CARE_EXEMPT"),
         ("PROC", "Procedure example", "PROCEDURE", "PROCEDURE", 850000, "CARE_EXEMPT"),
         ("WARD", "General ward, one day", "ROOM", "ROOM", 230000, "CARE_EXEMPT"),
         ("PRIVATE_ROOM", "Private room, one day", "ROOM", "ROOM", 600000, "ROOM_5_DEMO"),
         ("MED_A", "Paracetamol 500 mg, training SKU", "PHARMACY", "PHARMACY", 10000, "MED_5_DEMO"),
+        ("MED_M", "Metformin 500 mg, training SKU", "PHARMACY", "PHARMACY", 600, "MED_5_DEMO"),
         ("MED_N", "Contraceptive product, training SKU", "PHARMACY", "PHARMACY", 18000, "MED_NIL_DEMO"),
         ("DEVICE_B", "Medical device, training SKU", "PHARMACY", "DEVICE", 250000, "DEVICE_5_DEMO"),
         ("PMJAY_PKG", "PM-JAY training package", "PACKAGE", "PACKAGE", 1200000, "CARE_EXEMPT"),
@@ -172,6 +175,8 @@ def seed_demo(conn: psycopg.Connection) -> None:
     ]
     conn.cursor().executemany("""INSERT INTO services(service_code,description,department,kind,base_unit_paise,tax_rule_code)
         VALUES (%s,%s,%s,%s,%s,%s)""", services)
+    conn.execute("""INSERT INTO lab_catalog(service_code,loinc_code,cpt_reference,result_unit,specimen)
+        VALUES ('HBA1C','4548-4','83036','%','Blood')""")
     rates = [
         ("CONSULT", "PRIVATE", "", 45000), ("CONSULT", "CGHS", "", 40000),
         ("CONSULT", "CORPORATE", "", 45000), ("CONSULT", "PRIVATE", "Alpha TPA", 43000),
@@ -183,6 +188,7 @@ def seed_demo(conn: psycopg.Connection) -> None:
     conn.cursor().executemany("""INSERT INTO pharmacy_items(item_code,service_code,display_name,requires_prescription,controlled_stock)
         VALUES (%s,%s,%s,%s,%s)""", [
             ("MED-A", "MED_A", "Paracetamol 500 mg, training SKU", True, False),
+            ("MED-M", "MED_M", "Metformin 500 mg, training SKU", True, False),
             ("MED-N", "MED_N", "Contraceptive product, training SKU", True, False),
             ("DEVICE-B", "DEVICE_B", "Medical device, training SKU", False, False),
         ])
@@ -190,6 +196,7 @@ def seed_demo(conn: psycopg.Connection) -> None:
         VALUES (%s,%s,%s,%s)""", [
             ("MED-A", "DEMO-MA-01", date.today() + timedelta(days=365), 120),
             ("MED-A", "DEMO-MA-02", date.today() + timedelta(days=540), 80),
+            ("MED-M", "DEMO-MM-01", date.today() + timedelta(days=365), 300),
             ("MED-N", "DEMO-MN-01", date.today() + timedelta(days=365), 24),
             ("DEVICE-B", "DEMO-DB-01", date.today() + timedelta(days=730), 35),
         ])
@@ -229,6 +236,9 @@ def seed_demo(conn: psycopg.Connection) -> None:
         conn.execute("""INSERT INTO coverages(coverage_id,encounter_id,payer_route,payer_label,member_ref,preauth_required)
             VALUES (%s,%s,%s,%s,%s,%s)""", (f"C-{pid}", eid, route, payer,
                                             f"SYN-{pid}", route in {"PRIVATE", "PMJAY"} and setting == "IPD"))
+    conn.execute("""INSERT INTO patients(patient_id,display_label,age_years,sex,blood_group,contact_masked,city,allergies,history_summary)
+        VALUES ('P-DEMO-09','Asha Kulkarni',52,'Female','O+','9XXXXX1209','Bengaluru',
+        'No known drug allergies','Known type 2 diabetes. Returning for a planned OPD review; no documented complications. Prior HbA1c result is not imported into this demo.')""")
     for eid, note_text in [
         ("E-OPD-01", "Fever and fatigue for three days. CBC requested. Review hydration and temperature."),
         ("E-IPD-02", "Admitted for planned procedure. Review medication allergy before any dispensing."),
@@ -268,7 +278,7 @@ def seed_demo(conn: psycopg.Connection) -> None:
         SELECT %s,'C-P-DEMO-07',preauth_id,'APPROVED_DEMO',%s,1000000,'Z00','Synthetic discharge summary',
         %s,'SYN-CLAIM-07',now()-interval '42 days' FROM preauths WHERE encounter_id='E-OLD-07' LIMIT 1""",
         (due["invoice_id"], due["total_paise"], Jsonb({"itemised_bill": True, "discharge_summary": True})))
-    audit(conn, "DEMO_SEEDED", "system", "synthetic", {"cases": len(cases)})
+    audit(conn, "DEMO_SEEDED", "system", "synthetic", {"cases": len(cases) + 1})
 
 
 def reset_demo(conn: psycopg.Connection) -> None:
@@ -313,6 +323,8 @@ async def demo_auth(request: Request, call_next):
         required = "ADMIN"
         if path.startswith("/api/clinical/") or path == "/api/his/events":
             required = "DOCTOR"
+        elif path.startswith("/api/lab/"):
+            required = "LAB"
         elif path == "/api/pharmacy/dispense":
             required = "PHARMACY"
         if user["role"] != required:
@@ -337,6 +349,19 @@ class PrescriptionIn(BaseModel):
     item_code: str
     quantity: int = Field(ge=1, le=100)
     instruction: str = Field(default="", max_length=300)
+
+
+class DemoEncounterIn(BaseModel):
+    patient_id: str
+    case_code: str = "DIABETES_FOLLOWUP"
+    note_text: str = Field(min_length=15, max_length=2000)
+    medicine_item_code: str = "MED-M"
+    medicine_quantity: int = Field(default=10, ge=1, le=100)
+    instruction: str = Field(default="Existing medicine reviewed; take only as prescribed by the treating doctor.", max_length=300)
+
+
+class LabResultIn(BaseModel):
+    result_value: float = Field(gt=0, lt=30)
 
 
 @app.post("/api/auth/login")
@@ -390,6 +415,70 @@ def add_prescription(data: PrescriptionIn, request: Request):
             data.quantity, data.instruction.strip(), request.state.user["username"]))
         audit(conn, "PRESCRIPTION_ADDED", "prescription", ref)
         return record
+
+
+@app.post("/api/clinical/demo-encounters")
+def create_demo_clinical_encounter(data: DemoEncounterIn, request: Request):
+    """A clinician confirms a preconfigured pathway; no free-text code inference is performed."""
+    need(data.case_code == "DIABETES_FOLLOWUP", "Unknown demo pathway")
+    need(data.medicine_item_code == "MED-M", "This pathway uses the metformin training SKU")
+    with db() as conn:
+        patient = need(one(conn, "SELECT * FROM patients WHERE patient_id=%s FOR UPDATE", (data.patient_id,)),
+                       "Patient not found", 404)
+        need("type 2 diabetes" in patient["history_summary"].lower(),
+             "This teaching pathway requires the diabetes follow-up patient")
+        need(not one(conn, "SELECT 1 FROM encounters WHERE patient_id=%s AND status='OPEN'", (data.patient_id,)),
+             "This patient already has an open encounter", 409)
+        eid = f"E-{uuid4().hex[:9].upper()}"
+        conn.execute("""INSERT INTO encounters(encounter_id,patient_id,setting,payer_route,payer_label)
+            VALUES (%s,%s,'OPD','SELF','Self pay')""", (eid, data.patient_id))
+        conn.execute("""INSERT INTO coverages(coverage_id,encounter_id,payer_route,payer_label,member_ref)
+            VALUES (%s,%s,'SELF','Self pay',%s)""", (f"C-{eid}", eid, f"SYN-{eid}"))
+        note = one(conn, """INSERT INTO clinical_notes(encounter_id,author_username,note_text,
+            provisional_icd_code,procedure_code) VALUES (%s,%s,%s,'E11.9','83036') RETURNING *""",
+            (eid, request.state.user["username"], data.note_text.strip()))
+        consultation = create_charge(conn, eid, "CONSULT", 1, f"CONSULT-{eid}")["charge"]
+        lab_order = one(conn, """INSERT INTO lab_orders(encounter_id,service_code,ordered_by)
+            VALUES (%s,'HBA1C',%s) RETURNING *""", (eid, request.state.user["username"]))
+        ref = "RX-" + uuid4().hex[:10].upper()
+        prescription = one(conn, """INSERT INTO prescriptions(prescription_ref,encounter_id,item_code,
+            quantity,instruction,author_username) VALUES (%s,%s,'MED-M',%s,%s,%s) RETURNING *""",
+            (ref, eid, data.medicine_quantity, data.instruction.strip(), request.state.user["username"]))
+        audit(conn, "CLINICIAN_PATHWAY_CONFIRMED", "encounter", eid,
+              {"case_code": data.case_code, "icd10": "E11.9", "cpt_reference": "83036",
+               "loinc": "4548-4", "lab_order_id": lab_order["lab_order_id"]})
+        return {"encounter_id": eid, "note": note, "consultation_charge": consultation,
+                "lab_order": lab_order, "prescription": prescription}
+
+
+@app.get("/api/lab/queue")
+def lab_queue():
+    with db() as conn:
+        return {"orders": rows(conn, """SELECT o.*,p.display_label AS patient_label,
+            c.loinc_code,c.cpt_reference,c.result_unit,c.specimen,s.description,
+            s.base_unit_paise FROM lab_orders o JOIN encounters e USING(encounter_id)
+            JOIN patients p USING(patient_id) JOIN lab_catalog c USING(service_code)
+            JOIN services s USING(service_code) ORDER BY o.ordered_at DESC,o.lab_order_id DESC""")}
+
+
+@app.post("/api/lab/orders/{lab_order_id}/complete")
+def complete_lab_order(lab_order_id: int, data: LabResultIn, request: Request):
+    with db() as conn:
+        order = need(one(conn, "SELECT * FROM lab_orders WHERE lab_order_id=%s FOR UPDATE", (lab_order_id,)),
+                     "Lab order not found", 404)
+        if order["status"] == "COMPLETED":
+            need(float(order["result_value"]) == data.result_value,
+                 "The completed result cannot be changed by repeating this request", 409)
+            return {"order": order, "charge": one(conn, "SELECT * FROM charges WHERE charge_id=%s",
+                                                     (order["charge_id"],)), "duplicate": True}
+        charge = create_charge(conn, order["encounter_id"], order["service_code"], 1,
+                               f"LAB-ORDER-{lab_order_id}")["charge"]
+        updated = one(conn, """UPDATE lab_orders SET status='COMPLETED',result_value=%s,
+            performed_by=%s,charge_id=%s,completed_at=now() WHERE lab_order_id=%s RETURNING *""",
+            (data.result_value, request.state.user["username"], charge["charge_id"], lab_order_id))
+        audit(conn, "LAB_RESULT_COMPLETED", "lab_order", lab_order_id,
+              {"loinc": "4548-4", "charge_id": charge["charge_id"]})
+        return {"order": updated, "charge": charge, "duplicate": False}
 
 
 class EncounterIn(BaseModel):
@@ -517,6 +606,27 @@ def dashboard():
     return {**stats, "worklist": worklist}
 
 
+@app.get("/api/patients")
+def patient_list():
+    with db() as conn:
+        return {"patients": rows(conn, """SELECT p.*,e.encounter_id AS latest_encounter_id,
+            e.status AS latest_status,e.setting AS latest_setting FROM patients p
+            LEFT JOIN LATERAL (SELECT encounter_id,status,setting FROM encounters
+              WHERE patient_id=p.patient_id ORDER BY opened_at DESC,encounter_id DESC LIMIT 1) e ON true
+            ORDER BY p.patient_id""")}
+
+
+@app.get("/api/patients/{patient_id}")
+def patient_detail(patient_id: str):
+    with db() as conn:
+        patient = need(one(conn, "SELECT * FROM patients WHERE patient_id=%s", (patient_id,)),
+                       "Patient not found", 404)
+        return {"patient": patient,
+                "encounters": rows(conn, """SELECT encounter_id,setting,payer_route,status,opened_at
+                    FROM encounters WHERE patient_id=%s ORDER BY opened_at DESC,encounter_id DESC""",
+                    (patient_id,))}
+
+
 @app.get("/api/encounters/{encounter_id}")
 def encounter_detail(encounter_id: str):
     with db() as conn:
@@ -536,6 +646,9 @@ def encounter_detail(encounter_id: str):
                 "room_stays": rows(conn, "SELECT * FROM room_stays WHERE encounter_id=%s ORDER BY room_stay_id", (encounter_id,)),
                 "dispenses": rows(conn, "SELECT * FROM dispenses WHERE encounter_id=%s ORDER BY dispense_id", (encounter_id,)),
                 "clinical_notes": rows(conn, "SELECT * FROM clinical_notes WHERE encounter_id=%s ORDER BY created_at DESC,note_id DESC", (encounter_id,)),
+                "lab_orders": rows(conn, """SELECT o.*,c.loinc_code,c.cpt_reference,c.result_unit,
+                    c.specimen,s.description FROM lab_orders o JOIN lab_catalog c USING(service_code)
+                    JOIN services s USING(service_code) WHERE encounter_id=%s ORDER BY lab_order_id""", (encounter_id,)),
                 "prescriptions": rows(conn, """SELECT p.*,COALESCE((SELECT sum(d.quantity) FROM dispenses d
                     WHERE d.prescription_ref=p.prescription_ref),0) AS dispensed_quantity FROM prescriptions p
                     WHERE encounter_id=%s ORDER BY created_at DESC""", (encounter_id,)),

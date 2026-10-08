@@ -14,7 +14,7 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS history_summary TEXT NOT NULL DEFA
 CREATE TABLE IF NOT EXISTS staff_users (
   username TEXT PRIMARY KEY,
   display_name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('ADMIN','DOCTOR','PHARMACY')),
+  role TEXT NOT NULL CHECK (role IN ('ADMIN','DOCTOR','LAB','PHARMACY')),
   password_salt TEXT NOT NULL,
   password_hash TEXT NOT NULL
 );
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 DROP TABLE IF EXISTS coding_reviews;
 DELETE FROM auth_sessions WHERE username IN ('coder','billing');
 DELETE FROM staff_users WHERE username IN ('coder','billing');
-ALTER TABLE staff_users ADD CONSTRAINT staff_users_role_check CHECK (role IN ('ADMIN','DOCTOR','PHARMACY'));
+ALTER TABLE staff_users ADD CONSTRAINT staff_users_role_check CHECK (role IN ('ADMIN','DOCTOR','LAB','PHARMACY'));
 
 CREATE TABLE IF NOT EXISTS encounters (
   encounter_id TEXT PRIMARY KEY,
@@ -98,6 +98,28 @@ CREATE TABLE IF NOT EXISTS services (
   active BOOLEAN NOT NULL DEFAULT true
 );
 
+CREATE TABLE IF NOT EXISTS lab_catalog (
+  service_code TEXT PRIMARY KEY REFERENCES services(service_code),
+  loinc_code TEXT NOT NULL,
+  cpt_reference TEXT NOT NULL DEFAULT '',
+  result_unit TEXT NOT NULL,
+  specimen TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lab_orders (
+  lab_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  encounter_id TEXT NOT NULL REFERENCES encounters(encounter_id),
+  service_code TEXT NOT NULL REFERENCES lab_catalog(service_code),
+  status TEXT NOT NULL DEFAULT 'ORDERED' CHECK (status IN ('ORDERED','COMPLETED')),
+  ordered_by TEXT NOT NULL REFERENCES staff_users(username),
+  performed_by TEXT REFERENCES staff_users(username),
+  result_value NUMERIC(6,2),
+  charge_id BIGINT,
+  ordered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  UNIQUE (encounter_id,service_code)
+);
+
 CREATE TABLE IF NOT EXISTS payer_rates (
   service_code TEXT NOT NULL REFERENCES services(service_code),
   payer_route TEXT NOT NULL,
@@ -161,6 +183,14 @@ CREATE TABLE IF NOT EXISTS charges (
   room_stay_id BIGINT REFERENCES room_stays(room_stay_id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS lab_orders_charge_id_unique ON lab_orders(charge_id) WHERE charge_id IS NOT NULL;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lab_orders_charge_fk') THEN
+    ALTER TABLE lab_orders ADD CONSTRAINT lab_orders_charge_fk
+      FOREIGN KEY (charge_id) REFERENCES charges(charge_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS dispenses (
   dispense_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

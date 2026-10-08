@@ -14,6 +14,10 @@ The ERP Group article provided with the assignment informed the list of workflow
 - [GST portal GSTR-1 guide](https://tutorial.gst.gov.in/userguide/returns/GSTR_1.htm): includes Table 8 for nil-rated, exempt and non-GST outward supplies. The supplied article's claim that exempt supplies are not reported in GSTR-1 is therefore not used.
 - [MoHFW Patients' Rights Charter](https://clinicalestablishments.mohfw.gov.in/sites/default/files/2023-07/8431.pdf): patients should receive an itemised bill and payment receipts.
 - [WHO ICD classification](https://www.who.int/classifications/classification-of-diseases): ICD-10 classification context for the doctor's provisional diagnosis code.
+- [WHO ICD-10 coding guidance](https://icd.who.int/browse10/Content/statichtml/ICD10Volume2_en_2019.pdf): its diabetes example uses E11.9 for type 2 diabetes without documented complications.
+- [LOINC 4548-4](https://loinc.org/4548-4): HbA1c as a blood observation reported in percent. The observation code is kept apart from the hospital billing service code.
+- [AMA CPT listing](https://www.ama-assn.org/system/files/cpt-cat2-codes-alpha-listing-clinical-topics.pdf): CPT 83036 is a reference for a glycosylated haemoglobin test.
+- [MoHFW EHR standards recommendations](https://clinicalestablishments.mohfw.gov.in/sites/default/files/2022-06/107.pdf): ICD and LOINC are listed for clinical coding and observations; US CPT mapping is optional and involves licensing. The prototype displays CPT as a reference and prices the test using its own service master.
 - DH 308 lecture slides supplied with the assignment: ER modelling, database concepts, HIS, HL7, ICD/LOINC and ABDM context.
 
-The friend group's presentation is used for visual direction only. The separate `ER_Diagram.pptx` supplied by the user provides the final presentation's Chen notation conceptual ER image. Its broader LIS and RIS entities are design context, not claims that those modules are implemented in the website.
+The friend group's presentation is used for visual direction only. The separate `ER_Diagram.pptx` supplied by the user provides the final presentation's Chen notation conceptual ER image. The website now demonstrates a local lab order, result and charge using one LOINC-mapped HbA1c test. The diagram's broader LIS and RIS entities remain a conceptual design.

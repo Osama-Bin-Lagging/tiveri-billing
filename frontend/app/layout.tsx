@@ -5,7 +5,7 @@ import "./invoice.css";
 
 export const metadata: Metadata = {
   title: "Tiveri Billing | Hospital billing demo",
-  description: "Synthetic Indian hospital billing workflow connecting doctor, pharmacy and billing desk.",
+  description: "Synthetic Indian hospital billing workflow connecting doctor, laboratory, pharmacy and billing desk.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

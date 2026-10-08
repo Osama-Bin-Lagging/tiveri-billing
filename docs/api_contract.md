@@ -4,7 +4,7 @@ FastAPI serves http://127.0.0.1:8000 and interactive documentation at /docs. Nex
 
 All money uses integer paise. Dates use ISO format. Errors return FastAPI `{ "detail": "message" }`. Payer routes are `SELF`, `PRIVATE`, `PMJAY`, `CGHS`, `CORPORATE`. Settings are `OPD`, `IPD`, `EMERGENCY`, `DAY_CARE`.
 
-POST `/api/auth/login` accepts a demo username and password and returns a bearer token. All other `/api` endpoints except health require `Authorization: Bearer <token>`. GET `/api/auth/me` returns the staff role and POST `/api/auth/logout` ends the current session. Billing staff can change financial records, the doctor can add clinical notes, prescriptions and HIS service events, and pharmacy staff can dispense. The three demo accounts are `admin`, `doctor`, and `pharmacy`.
+POST `/api/auth/login` accepts a demo username and password and returns a bearer token. All other `/api` endpoints except health require `Authorization: Bearer <token>`. GET `/api/auth/me` returns the staff role and POST `/api/auth/logout` ends the current session. Billing staff can change financial records, the doctor can confirm the prepared clinical pathway and create orders, laboratory staff can complete ordered tests, and pharmacy staff can dispense. The four demo accounts are `admin`, `doctor`, `lab`, and `pharmacy`.
 
 ## Reads
 
@@ -13,8 +13,11 @@ POST `/api/auth/login` accepts a demo username and password and returns a bearer
 | GET /api/health | Server and PostgreSQL status |
 | GET /api/bootstrap | Charge master, payer rates, seeded cases and linked records |
 | GET /api/dashboard | Worklist and headline balances |
+| GET /api/patients | Existing patient directory and latest encounter |
+| GET /api/patients/{id} | Patient profile and encounter history |
 | GET /api/encounters/{id} | Patient profile and history, doctor notes, prescriptions, running bill and payer state |
 | GET /api/clinical/queue | Prescriptions with quantity already dispensed |
+| GET /api/lab/queue | Ordered and completed lab work with LOINC mappings |
 | GET /api/pharmacy/stock | Unexpired stock by item and batch |
 | GET /api/gstr1?month=YYYY-MM | Tables 4, 7, 8, 12, 13 review packet with warnings |
 | GET /api/ar?as_of=YYYY-MM-DD | Outstanding invoices and 30/60/90 day buckets |
@@ -29,6 +32,8 @@ POST `/api/auth/login` accepts a demo username and password and returns a bearer
 | POST /api/his/events | Capture idempotent delivered service |
 | POST /api/clinical/notes | Add a doctor note with optional provisional ICD-10 and hospital service code |
 | POST /api/clinical/prescriptions | Order a stocked medicine for the patient |
+| POST /api/clinical/demo-encounters | Doctor confirms the diabetes follow-up case; creates encounter, diagnosis, consultation charge, HbA1c order and prescription in one transaction |
+| POST /api/lab/orders/{id}/complete | Lab records the synthetic result and posts its service charge once |
 | POST /api/encounters/{id}/room-stays | Add a dated IPD room stay |
 | POST /api/pharmacy/dispense | Decrement one unexpired batch and post charge |
 | POST /api/packages/apply | Add package, zero included service charges |
@@ -50,6 +55,8 @@ See /docs for request and response schemas. Demo reset is enabled only when `DEM
 
 - HIS retries with the same `source_event_id` and payload return `duplicate: true`; a conflicting retry returns HTTP 409.
 - Pharmacy dispensing checks the doctor's matching prescription and remaining quantity for prescription items.
+- The fixed diabetes follow-up pathway maps the doctor-confirmed case to ICD-10 E11.9, LOINC 4548-4 for the HbA1c observation and optional CPT 83036. CPT is not used as the Indian billing tariff. The local service code `HBA1C` sets the charge.
+- A lab charge appears only after the lab completes the ordered result. Repeating completion with the same value returns the existing charge; changing a completed result through that endpoint is rejected.
 - Price and tax are snapped on charges. The effective-dated tax rule is selected when charge capture occurs.
 - Claims use the latest doctor-recorded provisional ICD-10 from the encounter.
 - A prescribed item dispensed for qualifying IPD treatment uses the demo's exempt care classification. A separate OPD pharmacy supply uses the item's configured tax rule.
