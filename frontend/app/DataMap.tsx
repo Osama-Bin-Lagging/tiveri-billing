@@ -65,7 +65,6 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
   const [active, setActive] = useState("registration");
   const [tab, setTab] = useState<"records" | "schema" | "timeline">("records");
   const [open, setOpen] = useState<string | null>(null);           // "entityKey:pk" of the expanded record
-  const [replay, setReplay] = useState<{ on: boolean; step: number; playing: boolean }>({ on: false, step: 0, playing: false });
   const [view, setView] = useState({ k: 1, x: 0, y: 0 });
   const [query, setQuery] = useState("");
   const [miss, setMiss] = useState("");
@@ -73,34 +72,16 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => { load("/datamap/schema").then(setSchema); }, [load]);
-  useEffect(() => { setVisit(""); setOpen(null); setReplay({ on: false, step: 0, playing: false }); }, [selected]);
+  useEffect(() => { setVisit(""); setOpen(null); }, [selected]);
   useEffect(() => { if (selected) load(`/datamap/${selected}${visit ? `?encounter_id=${visit}` : ""}`).then(setData); }, [selected, visit, detail, load]);
 
   const ents: Row[] = schema?.entities || [];
   const byKey = useMemo(() => Object.fromEntries(ents.map(e => [e.key, e])), [ents]);
   const keyOfTable = useMemo(() => Object.fromEntries(ents.map(e => [e.table, e.key]).reverse()), [ents]);
   const timeline: Row[] = data?.timeline || [];
-  const steps = timeline.length;
-  const cutoff = replay.on && steps ? Number(timeline[Math.min(replay.step, steps - 1)].audit_id) : null;
-  const nowEvent = replay.on && steps ? timeline[Math.min(replay.step, steps - 1)] : null;
-  const nowKey = nowEvent ? keyOfTable[nowEvent.entity] : null;
 
-  const rowsOf = useCallback((key: string): Row[] => {
-    const all: Row[] = data?.entities?.[key]?.rows || [];
-    if (!cutoff) return all;
-    const ref = byKey[key]?.kind === "reference";
-    return ref ? all : all.filter(r => r._seq != null && Number(r._seq) <= cutoff);
-  }, [data, cutoff, byKey]);
+  const rowsOf = useCallback((key: string): Row[] => data?.entities?.[key]?.rows || [], [data]);
   const count = (k: string) => rowsOf(k).length;
-
-  // Autoplay
-  useEffect(() => {
-    if (!replay.playing) return;
-    if (replay.step >= steps - 1) { setReplay(r => ({ ...r, playing: false })); return; }
-    const t = setTimeout(() => setReplay(r => ({ ...r, step: r.step + 1 })), 900);
-    return () => clearTimeout(t);
-  }, [replay, steps]);
-  useEffect(() => { if (replay.on && nowKey) { setActive(nowKey); setTab("records"); } }, [replay.on, replay.step, nowKey]);
 
   const entity = byKey[active];
   const recs = rowsOf(active);
@@ -156,25 +137,13 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
   return <div className="p-dmx">
     <div className="p-dmx-bar">
       <div className="p-dmx-title"><div className="p-kicker">DATA MAP · LIVE ER VIEW</div>
-        <h2>{record.patient?.display_label}</h2><p>{total} records across {ents.filter(e => e.kind !== "reference" && count(e.key)).length} tables{replay.on ? " so far" : ""}. Click a box, then a record, to follow its links.</p></div>
+        <h2>{record.patient?.display_label}</h2><p>{total} records across {ents.filter(e => e.kind !== "reference" && count(e.key)).length} tables. Click a box, then a record, to follow its links.</p></div>
       <div className="p-dmx-tools">
         <select value={visit} onChange={e => { setVisit(e.target.value); setOpen(null); }} aria-label="Visit"><option value="">All visits</option>{(record.encounters || []).map((e: Row) => <option key={e.encounter_id} value={e.encounter_id}>{e.encounter_id} · {e.setting} · {e.status}</option>)}</select>
         <div className="p-dmx-search"><input value={query} placeholder="Find an ID, e.g. TVR-2026-00001" onChange={e => { setQuery(e.target.value); setMiss(""); }} onKeyDown={e => { if (e.key === "Enter") search(); }} /><button onClick={search}>Find</button></div>
-        <button className={`p-dmx-replay-btn ${replay.on ? "on" : ""}`} disabled={!steps} onClick={() => setReplay(r => r.on ? { on: false, step: 0, playing: false } : { on: true, step: 0, playing: true })}>{replay.on ? "Exit replay" : "▶ Replay the visit"}</button>
       </div>
     </div>
     {miss && <div className="p-alert error">{miss}</div>}
-    {replay.on && nowEvent && <div className="p-dmx-player">
-      <div className="p-dmx-controls">
-        <button onClick={() => setReplay(r => ({ ...r, step: 0, playing: false }))} aria-label="First step">⏮</button>
-        <button onClick={() => setReplay(r => ({ ...r, step: Math.max(0, r.step - 1), playing: false }))} aria-label="Previous step">◀</button>
-        <button className="play" onClick={() => setReplay(r => ({ ...r, playing: !r.playing, step: r.step >= steps - 1 ? 0 : r.step }))}>{replay.playing ? "Pause" : "Play"}</button>
-        <button onClick={() => setReplay(r => ({ ...r, step: Math.min(steps - 1, r.step + 1), playing: false }))} aria-label="Next step">▶</button>
-        <button onClick={() => setReplay(r => ({ ...r, step: steps - 1, playing: false }))} aria-label="Last step">⏭</button>
-      </div>
-      <input type="range" min={0} max={steps - 1} value={replay.step} onChange={e => setReplay(r => ({ ...r, step: Number(e.target.value), playing: false }))} aria-label="Replay position" />
-      <div className="p-dmx-caption"><b>Step {replay.step + 1}/{steps}</b><span>{dateTime(nowEvent.created_at)}</span><Tag tone="blue">{nowEvent.actor}</Tag><span>{nowEvent.action.replaceAll("_", " ").toLowerCase()}</span><small>{byKey[nowKey || ""]?.er_name || nowEvent.entity}</small></div>
-    </div>}
 
     <div className="p-dmx-body">
       <div className="p-dmx-canvas">
@@ -199,7 +168,7 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
           })}
           {ents.map(e => {
             const [fill, stroke] = COLORS[e.group] || COLORS.HIS; const n = count(e.key); const b = center(e);
-            const cls = ["p-dmx-node", n ? "" : "empty", e.key === active ? "sel" : "", nowKey === e.key ? "pulse" : "", lit.size && !lit.has(e.key) ? "dim" : "", lit.has(e.key) ? "lit" : ""].join(" ");
+            const cls = ["p-dmx-node", n ? "" : "empty", e.key === active ? "sel" : "", lit.size && !lit.has(e.key) ? "dim" : "", lit.has(e.key) ? "lit" : ""].join(" ");
             return <g key={e.key} className={cls} onClick={() => { setActive(e.key); setTab("records"); }}>
               {e.kind === "relationship"
                 ? <polygon points={`${b.cx},${b.cy - 24} ${b.cx + 40},${b.cy} ${b.cx},${b.cy + 24} ${b.cx - 40},${b.cy}`} fill={fill} stroke={stroke} strokeWidth={2} />
@@ -224,7 +193,7 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
           const id = `${active}:${r[entity.pk]}`; const isOpen = open === id;
           const sum = (SUMMARY[entity.table] || []).map(c => show(c, r[c])).filter(x => x !== "—");
           const l = isOpen ? links(active, r) : null;
-          return <div key={id} className={`p-dmx-rec ${isOpen ? "open" : ""} ${replay.on && nowEvent && nowEvent.entity === entity.table && String(nowEvent.entity_id) === String(r[entity.pk]) ? "new" : ""}`}>
+          return <div key={id} className={`p-dmx-rec ${isOpen ? "open" : ""}`}>
             <button className="p-dmx-rec-head" onClick={() => setOpen(isOpen ? null : id)}>
               <code>{show(entity.pk, r[entity.pk])}</code><span>{sum.join(" · ") || "—"}</span>{r.status && <Tag tone={statusTone(r.status)}>{r.status}</Tag>}<i>{isOpen ? "−" : "+"}</i></button>
             {isOpen && <>
@@ -240,7 +209,7 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
               {r._seq != null && <p className="p-fineprint">{(() => { const ev = timeline.find(t => Number(t.audit_id) === Number(r._seq)); return ev ? `Created by ${ev.actor} · ${dateTime(ev.created_at)} · ${ev.action.replaceAll("_", " ").toLowerCase()}` : ""; })()}</p>}
             </>}
           </div>;
-        })}</div> : <p className="p-history">{replay.on ? "Not created yet at this step of the visit." : `No ${entity?.er_name} records for this patient yet. They appear as the workflow reaches this step.`}</p>)}
+        })}</div> : <p className="p-history">No {entity?.er_name} records for this patient yet. They appear as the workflow reaches this step.</p>)}
 
         {tab === "schema" && <div>
           <div className="p-table"><table><thead><tr><th>Attribute</th><th>Type</th><th>Key</th></tr></thead><tbody>
@@ -253,8 +222,8 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
           })}</div>
         </div>}
 
-        {tab === "timeline" && <div className="p-dmx-timeline">{timeline.map((t, i) => <button key={t.audit_id} className={replay.on && i === replay.step ? "now" : replay.on && i > replay.step ? "future" : ""}
-          onClick={() => { setReplay({ on: true, step: i, playing: false }); const k = keyOfTable[t.entity]; if (k) { const row = (data?.entities?.[k]?.rows || []).find((x: Row) => String(x[pkOf(k)]) === String(t.entity_id)); goTo(k, row); } }}>
+        {tab === "timeline" && <div className="p-dmx-timeline">{timeline.map(t => <button key={t.audit_id}
+          onClick={() => { const k = keyOfTable[t.entity]; if (k) { const row = (data?.entities?.[k]?.rows || []).find((x: Row) => String(x[pkOf(k)]) === String(t.entity_id)); goTo(k, row); } }}>
           <small>{dateTime(t.created_at)}</small><b>{t.action.replaceAll("_", " ").toLowerCase()}</b><span>{t.actor} · {byKey[keyOfTable[t.entity]]?.er_name || t.entity} #{t.entity_id}</span></button>)}</div>}
       </aside>
     </div>

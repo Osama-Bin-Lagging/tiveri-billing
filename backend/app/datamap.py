@@ -160,7 +160,7 @@ def datamap(patient_id: str, encounter_id: str = ""):
             data[key] = {"count": len(records), "rows": records}
             pk = pk_of[key]
             pairs += [(table, str(r[pk])) for r in records if pk in r]
-        # Replay order: the first audit event of each record (audit_id is strictly sequential).
+        # The first audit event of each record: shows who created it and when.
         first_seen = {(r["entity"], r["entity_id"]): r["seq"] for r in rows(conn, """SELECT a.entity, a.entity_id,
             min(a.audit_id) AS seq FROM audit_events a JOIN unnest(%s::text[], %s::text[]) AS t(entity, entity_id)
             USING (entity, entity_id) GROUP BY 1, 2""", ([p[0] for p in pairs], [p[1] for p in pairs]))}

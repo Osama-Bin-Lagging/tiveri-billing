@@ -23,7 +23,7 @@ The ER diagram uses conceptual names; the database keeps its table names. This i
 | Insurance | `insurance_policies` | Patient-level policy; `coverages` records which policy a visit uses and its verification |
 | Insurance Claim | `claims` | Several attempts per bill (`attempt_no`, `parent_claim_id`); APPROVED / PARTIAL / REJECTED |
 
-Workflow tables (the workflow diagram needs them; the minimal ER diagram does not show them):
+Workflow tables (the workflow diagram needs them; the minimal ER diagram does not show them, so the Data map leaves them out):
 
 | Workflow step | Table |
 |---|---|
