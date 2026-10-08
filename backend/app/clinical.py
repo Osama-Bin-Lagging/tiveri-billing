@@ -14,7 +14,7 @@ router = APIRouter()
 
 class ConsultationIn(BaseModel):
     encounter_id: str
-    notes: str = Field(min_length=10, max_length=2000)
+    notes: str = Field(min_length=1, max_length=2000)
 
 
 class RadiologyLine(BaseModel):
@@ -52,7 +52,7 @@ class LabResultIn(BaseModel):
 
 
 class RadiologyReportIn(BaseModel):
-    findings: str = Field(min_length=5, max_length=1000)
+    findings: str = Field(min_length=1, max_length=1000)
 
 
 class DispenseIn(BaseModel):
@@ -64,7 +64,7 @@ class DispenseIn(BaseModel):
 class CancelOrderIn(BaseModel):
     kind: str
     order_id: int
-    reason: str = Field(min_length=3, max_length=200)
+    reason: str = Field(min_length=1, max_length=200)
 
 
 ORDER_TABLES = {"LAB": ("lab_orders", "lab_order_id", "ORDERED"),

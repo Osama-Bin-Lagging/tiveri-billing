@@ -30,7 +30,7 @@ export default function Diagnostics({ ctx }: { ctx: Ctx }) {
           <div><b>{o.description}</b><small>{o.modality} · SNOMED {o.snomed_code}{o.clinical_notes ? ` · ${o.clinical_notes}` : ""}</small></div>
           {o.status === "ORDERED" ? <div className="p-order-input">
             <input placeholder="Findings" value={values[`R${o.rad_order_id}`] || ""} onChange={e => set(`R${o.rad_order_id}`, e.target.value)} />
-            <button className="p-primary" disabled={busy || (values[`R${o.rad_order_id}`] || "").trim().length < 5} onClick={() => act(`${o.description} reported; charge posted.`, `/radiology/orders/${o.rad_order_id}/report`, { findings: values[`R${o.rad_order_id}`] })}>Submit report</button>
+            <button className="p-primary" disabled={busy || !(values[`R${o.rad_order_id}`] || "").trim()} onClick={() => act(`${o.description} reported; charge posted.`, `/radiology/orders/${o.rad_order_id}/report`, { findings: values[`R${o.rad_order_id}`] })}>Submit report</button>
           </div> : <div><Tag tone={statusTone(o.status)}>{o.status}</Tag>{o.findings && <small> {o.findings}</small>}</div>}
         </div>) : <Empty>No radiology orders on this visit.</Empty>}
       </Card>

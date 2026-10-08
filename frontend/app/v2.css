@@ -133,3 +133,4 @@
 @media (max-width:760px){.p-shell.map .p-sidebar{width:auto;min-width:0}}
 
 .p-dmx-zoom{top:auto;bottom:44px}
+.p-field-hint{font-weight:500;color:#5b7480;font-size:12px;margin-top:2px}

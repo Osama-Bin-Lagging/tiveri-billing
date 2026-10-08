@@ -28,7 +28,7 @@ class ClaimDecisionIn(BaseModel):
 
 
 class ResubmitIn(BaseModel):
-    correction_note: str = Field(min_length=5, max_length=500)
+    correction_note: str = Field(min_length=1, max_length=500)
     documents: dict[str, bool] = Field(default_factory=lambda: {"itemised_bill": True, "discharge_summary": True})
 
 

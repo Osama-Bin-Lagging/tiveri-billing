@@ -205,7 +205,7 @@ def seed_demo(conn) -> None:
     for pid, name, dob, sex, blood, city, allergies, history, abha in PATIENTS:
         reception.register_patient(conn, "reception", reception.PatientIn(
             display_label=name, dob=date.fromisoformat(dob), sex=sex, blood_group=blood, city=city,
-            contact_masked=f"9XXXXX{pid[-2:]}00", allergies=allergies, history_summary=history, abha_number=abha,
+            contact=f"98765432{pid[-2:]}", allergies=allergies, history_summary=history, abha_number=abha,
             abha_address=f"{name.split()[0].lower()}{pid[-2:]}@abdm" if abha else ""), patient_id=pid)
     _policy(conn, "P-DEMO-02", "POL-ALPHA-0102", "PRIVATE", "Alpha TPA", "ALP-55120102", 50000000, 10)
     _policy(conn, "P-DEMO-03", "POL-PMJAY-0103", "PMJAY", "PM-JAY", "PMJAY-KA-0103", 50000000)

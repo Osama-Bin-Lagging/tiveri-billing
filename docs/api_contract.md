@@ -9,7 +9,7 @@ Reads are open to every desk. Writes are limited by desk (403 otherwise).
 ## Reception
 | Endpoint | Purpose |
 |---|---|
-| POST /api/patients | Register a patient (MRN generated; optional 14-digit ABHA) |
+| POST /api/patients | Register a patient (MRN generated; optional 14-digit ABHA; optional 10-digit `contact`, stored masked as 9XXXXX1234) |
 | POST /api/patients/{id}/policies | Add an insurance policy (PRIVATE, PMJAY, CGHS, CORPORATE) |
 | POST /api/appointments | Book an appointment (logs an APPOINTMENT notification) |
 | POST /api/appointments/{id}/check-in | Open the visit (Registration) with payment mode SELF / CASHLESS / REIMBURSEMENT |

@@ -77,7 +77,7 @@ export default function Billing({ ctx }: { ctx: Ctx }) {
             {audit.findings.map((f: Row, i: number) => <div className={`p-finding ${f.severity === "BLOCK" ? "block" : "warn"}`} key={i}>
               <b>{f.rule.replaceAll("_", " ")}</b><span>{f.message}</span>
               {f.charge_id && reverseId !== f.charge_id && <button className="p-link" onClick={() => setReverseId(f.charge_id)}>Reverse this charge</button>}
-              {f.charge_id && reverseId === f.charge_id && <div className="p-inline-form"><input value={reason} onChange={e => setReason(e.target.value)} /><button className="p-primary" disabled={busy || reason.trim().length < 5} onClick={() => reverse(f.charge_id)}>Confirm reversal</button></div>}
+              {f.charge_id && reverseId === f.charge_id && <div className="p-inline-form"><input value={reason} onChange={e => setReason(e.target.value)} /><button className="p-primary" disabled={busy || !reason.trim()} onClick={() => reverse(f.charge_id)}>Confirm reversal</button></div>}
             </div>)}
           </>}
           <div className="p-action-row">
@@ -96,7 +96,7 @@ export default function Billing({ ctx }: { ctx: Ctx }) {
           <td>{c.tax_category === "TAXABLE" ? `${c.tax_rate_bps / 100}%` : c.tax_category.toLowerCase()}</td>
           <td>{money(c.subtotal_paise + lineTax(c))}</td>
           <td className="p-row-actions">{c.charge_type === "CHARGE" && !c.offset_applied && enc.status !== "BILLED" && (reverseId === c.charge_id
-            ? <span className="p-inline-form"><input value={reason} onChange={e => setReason(e.target.value)} /><button className="p-primary" disabled={busy || reason.trim().length < 5} onClick={() => reverse(c.charge_id)}>Reverse</button></span>
+            ? <span className="p-inline-form"><input value={reason} onChange={e => setReason(e.target.value)} /><button className="p-primary" disabled={busy || !reason.trim()} onClick={() => reverse(c.charge_id)}>Reverse</button></span>
             : <button className="p-link" onClick={() => setReverseId(c.charge_id)}>Reverse</button>)}</td>
         </tr>)}
       </tbody></table></div> : <Empty>No completed service has been charged yet.</Empty>}
@@ -124,10 +124,10 @@ export default function Billing({ ctx }: { ctx: Ctx }) {
           <div className="p-inline-form"><input type="number" placeholder="Approved ₹" value={partial.amount || ""} onChange={e => setPartial({ ...partial, amount: Number(e.target.value) })} /><input value={partial.reason} onChange={e => setPartial({ ...partial, reason: e.target.value })} />
             <button className="p-secondary" disabled={busy || !partial.amount} onClick={() => act("Claim partly approved.", `/claims/${claim.claim_id}/decision`, { outcome: "PARTIAL", approved_paise: partial.amount * 100, reason: partial.reason })}>Approve part</button></div>
           <div className="p-inline-form"><input value={reject} onChange={e => setReject(e.target.value)} />
-            <button className="p-link" disabled={busy || reject.trim().length < 3} onClick={() => act("Claim rejected. A notice was logged for the patient.", `/claims/${claim.claim_id}/decision`, { outcome: "REJECTED", reason: reject })}>Reject</button></div>
+            <button className="p-link" disabled={busy || !reject.trim()} onClick={() => act("Claim rejected. A notice was logged for the patient.", `/claims/${claim.claim_id}/decision`, { outcome: "REJECTED", reason: reject })}>Reject</button></div>
         </div>}
         {claim?.status === "REJECTED" && <div className="p-inline-form"><input value={correction} onChange={e => setCorrection(e.target.value)} />
-          <button className="p-primary" disabled={busy || correction.trim().length < 5} onClick={() => act("Claim corrected and resubmitted.", `/claims/${claim.claim_id}/resubmit`, { correction_note: correction })}>Resubmit claim</button></div>}
+          <button className="p-primary" disabled={busy || !correction.trim()} onClick={() => act("Claim corrected and resubmitted.", `/claims/${claim.claim_id}/resubmit`, { correction_note: correction })}>Resubmit claim</button></div>}
         {shortfall && <div className="p-sim-box"><div className="p-mini-heading">Insurer will not pay {money(detail.payer_share_paise - (claim.status === "PARTIAL" ? claim.approved_paise : detail.payer_received_paise))}</div>
           {enc.payer_route !== "PMJAY" && <button className="p-primary" disabled={busy} onClick={() => act("Shortfall moved to the patient (self-pay path).", `/invoices/${inv.invoice_id}/shortfall`, { action: "TO_PATIENT" })}>Bill the patient</button>}
           <button className="p-link" disabled={busy} onClick={() => act("Shortfall written off.", `/invoices/${inv.invoice_id}/shortfall`, { action: "WRITE_OFF" })}>Write off</button></div>}

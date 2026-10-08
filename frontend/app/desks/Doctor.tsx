@@ -49,7 +49,7 @@ export default function Doctor({ ctx }: { ctx: Ctx }) {
         {consults.map(c => <div className="p-note" key={c.consult_id}><b>{dateTime(c.consult_at)} · {c.doctor_name}</b><p>{c.notes}</p></div>)}
         {open && <>
           <label className="p-field">Consultation notes<textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="History, examination, impression" /></label>
-          <button className={consults.length ? "p-secondary" : "p-primary"} disabled={busy || notes.trim().length < 10} onClick={async () => { if (await act("Consultation recorded; consultation fee posted to the running bill.", "/clinical/consultations", { encounter_id: eid, notes })) setNotes(""); }}>Record consultation</button>
+          <button className={consults.length ? "p-secondary" : "p-primary"} disabled={busy || !notes.trim()} onClick={async () => { if (await act("Consultation recorded; consultation fee posted to the running bill.", "/clinical/consultations", { encounter_id: eid, notes })) setNotes(""); }}>Record consultation</button>
         </>}
       </Card>
 

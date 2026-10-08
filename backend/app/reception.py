@@ -15,16 +15,24 @@ ABHA_PATTERN = re.compile(r"\d{2}-?\d{4}-?\d{4}-?\d{4}")
 
 
 class PatientIn(BaseModel):
-    display_label: str = Field(min_length=2, max_length=80)
+    display_label: str = Field(min_length=1, max_length=80)
     dob: date
     sex: str = Field(default="", max_length=20)
-    contact_masked: str = Field(default="", max_length=20)
+    contact: str = Field(default="", max_length=10)  # 10-digit mobile; only a masked form is stored
     city: str = Field(default="", max_length=60)
     blood_group: str = Field(default="", max_length=5)
     allergies: str = Field(default="", max_length=200)
     history_summary: str = Field(default="", max_length=600)
     abha_number: str = Field(default="", max_length=17)
     abha_address: str = Field(default="", max_length=60)
+
+
+def mask_contact(contact: str) -> str:
+    digits = contact.strip()
+    if not digits:
+        return ""
+    need(digits.isdigit() and len(digits) == 10, "Contact must be a 10-digit mobile number (digits only)")
+    return f"{digits[0]}XXXXX{digits[-4:]}"
 
 
 class PolicyIn(BaseModel):
@@ -83,7 +91,7 @@ def register_patient(conn, who: str, data: PatientIn, patient_id: str | None = N
     mrn = f"MRN-{date.today().year}-{seq:05d}"
     patient = one(conn, """INSERT INTO patients(patient_id,mrn,display_label,dob,sex,blood_group,contact_masked,city,
         allergies,history_summary,abha_number,abha_address) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-        (pid, mrn, data.display_label.strip(), data.dob, data.sex, data.blood_group, data.contact_masked, data.city,
+        (pid, mrn, data.display_label.strip(), data.dob, data.sex, data.blood_group, mask_contact(data.contact), data.city,
          data.allergies, data.history_summary, abha or None, data.abha_address.strip() or None))
     audit(conn, who, "PATIENT_REGISTERED", "patients", pid, {"mrn": mrn, "abha": bool(abha)})
     return patient

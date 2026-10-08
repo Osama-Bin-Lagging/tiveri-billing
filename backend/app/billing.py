@@ -16,7 +16,7 @@ PATIENT_DUE_DAYS = 15
 
 
 class ReverseIn(BaseModel):
-    reason: str = Field(min_length=5, max_length=300)
+    reason: str = Field(min_length=1, max_length=300)
 
 
 class InvoiceIn(BaseModel):

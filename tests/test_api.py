@@ -277,3 +277,15 @@ def test_h_reports_and_reference_reads(client):
     gst = call(client, "GET", "/api/gstr1")
     assert gst["tables"]["table4"]  # corporate B2B bill with a taxable OPD medicine line
     assert call(client, "GET", "/api/health")["schema_version"] == 2
+
+
+def test_contact_is_ten_digits_and_stored_masked_and_short_notes_are_allowed(client):
+    as_role(client, "reception")
+    base = {"display_label": "Contact Test", "dob": "1995-05-05"}
+    for bad in ("98765", "98765abc12", "+919876543210"):
+        call(client, "POST", "/api/patients", {**base, "contact": bad}, 400 if len(bad) <= 10 else 422)
+    patient = call(client, "POST", "/api/patients", {**base, "contact": "9876543210"})
+    assert patient["contact_masked"] == "9XXXXX3210"
+    enc = call(client, "POST", "/api/encounters", {"patient_id": patient["patient_id"], "setting": "OPD", "payment_mode": "SELF"})
+    as_role(client, "doctor")
+    call(client, "POST", "/api/clinical/consultations", {"encounter_id": enc["encounter_id"], "notes": "ok"})

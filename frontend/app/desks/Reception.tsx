@@ -11,7 +11,7 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
   const policies: Row[] = record.policies || [];
   const appts: Row[] = record.appointments || [];
 
-  const [reg, setReg] = useState({ display_label: "", dob: "1990-01-01", sex: "Female", city: "Bengaluru", contact_masked: "", abha_number: "", allergies: "" });
+  const [reg, setReg] = useState({ display_label: "", dob: "1990-01-01", sex: "Female", city: "Bengaluru", contact: "", abha_number: "", allergies: "" });
   const [pol, setPol] = useState({ payer_route: "PRIVATE", provider_name: "Alpha TPA", policy_no: "", valid_to: today(365), cover: 500000, copay_percent: 0 });
   const [appt, setAppt] = useState({ doctor_id: "D-01", slot_at: `${today()}T11:00`, reason: "" });
   const [visit, setVisit] = useState({ setting: "OPD", payment_mode: "SELF", policy_id: "" });
@@ -19,7 +19,7 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
 
   async function register() {
     const created = await act("Patient registered with an MRN.", "/patients", { ...reg, abha_number: reg.abha_number.trim() });
-    if (created) { await choose(created.patient_id); setReg({ ...reg, display_label: "", abha_number: "", contact_masked: "" }); }
+    if (created) { await choose(created.patient_id); setReg({ ...reg, display_label: "", abha_number: "", contact: "" }); }
   }
   const visitBody = () => ({ ...visit, policy_id: visit.payment_mode === "SELF" ? "" : visit.policy_id || policies[0]?.policy_id || "" });
   const payerChoices = <>
@@ -42,11 +42,11 @@ export default function Reception({ ctx }: { ctx: Ctx }) {
         </div>
         <div className="p-two-fields">
           <label className="p-field">City<input value={reg.city} onChange={e => setReg({ ...reg, city: e.target.value })} /></label>
-          <label className="p-field">Contact (masked)<input value={reg.contact_masked} onChange={e => setReg({ ...reg, contact_masked: e.target.value })} placeholder="9XXXXX1234" /></label>
+          <label className="p-field">Mobile number<input type="tel" inputMode="numeric" maxLength={10} value={reg.contact} onChange={e => setReg({ ...reg, contact: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="10 digits" />{reg.contact && <small className="p-field-hint">{reg.contact.length === 10 ? `Saved masked as ${reg.contact[0]}XXXXX${reg.contact.slice(-4)}` : `${10 - reg.contact.length} more digit${reg.contact.length === 9 ? "" : "s"}`}</small>}</label>
         </div>
         <label className="p-field">ABHA number (optional)<input value={reg.abha_number} onChange={e => setReg({ ...reg, abha_number: e.target.value })} placeholder="XX-XXXX-XXXX-XXXX" /></label>
         <label className="p-field">Allergies<input value={reg.allergies} onChange={e => setReg({ ...reg, allergies: e.target.value })} placeholder="No known drug allergies" /></label>
-        <button className="p-primary" disabled={busy || reg.display_label.trim().length < 2} onClick={register}>Register patient</button>
+        <button className="p-primary" disabled={busy || !reg.display_label.trim() || (reg.contact.length > 0 && reg.contact.length !== 10)} onClick={register}>Register patient</button>
         <p className="p-fineprint">The hospital MRN is generated automatically. ABHA links the record to the national health ID; it is optional.</p>
       </Card>
 
