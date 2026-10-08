@@ -35,17 +35,14 @@ ENTITIES = [
     ("procedure_performed", "Procedure Performed", "procedures_performed", "entity", "HIS", 525, 580,
      f"proc_order_id IN (SELECT proc_order_id FROM procedure_orders WHERE {E})"),
     # Lane: billing
-    ("charge", "Charge", "charges", "entity", "BILLING", 705, 250, E),
-    ("bill_line", "Bill Line", "invoice_lines", "weak", "BILLING", 870, 250, INV),
+    ("charge", "Charge", "charges", "entity", "BILLING", 870, 250, E),
     ("bill", "Bill", "invoices", "entity", "BILLING", 870, 150, E),
     ("payment", "Payment", "receipts", "entity", "BILLING", 1035, 150, INV),
-    ("service", "Service", "services", "reference", "BILLING", 705, 370,
+    ("service", "Service", "services", "reference", "BILLING", 870, 370,
      f"service_code IN (SELECT service_code FROM charges WHERE {E})"),
-    ("payer_rate", "Payer Rate", "payer_rates", "reference", "BILLING", 870, 370,
+    ("payer_rate", "Payer Rate", "payer_rates", "reference", "BILLING", 1035, 370,
      f"service_code IN (SELECT service_code FROM charges WHERE {E}) AND (payer_route, payer_label) IN "
      f"(SELECT payer_route, payer_label FROM encounters WHERE {E} UNION SELECT payer_route, '' FROM encounters WHERE {E})"),
-    ("tax_rule", "Tax Rule", "tax_rules", "reference", "BILLING", 705, 480,
-     f"rule_code IN (SELECT tax_rule_code FROM charges WHERE {E})"),
     # Lane: payer
     ("claim", "Insurance Claim", "claims", "entity", "INSURANCE", 870, 50, INV),
     ("insurance", "Insurance", "insurance_policies", "entity", "INSURANCE", 1035, 50, "patient_id=%(p)s"),
@@ -75,7 +72,6 @@ for _e in ENTITIES:
 # from, to, label, cardinality at "from", cardinality at "to"
 RELATIONS = [
     ("patient", "registration", "has", "1", "N"),
-    ("patient", "insurance", "holds", "1", "N"),
     ("registration", "consultation", "includes", "1", "N"),
     ("doctor", "consultation", "conducts", "1", "N"),
     ("consultation", "prescription", "leads to", "1", "N"),
@@ -95,21 +91,36 @@ RELATIONS = [
     ("lab_result", "charge", "charges", "1", "1"),
     ("medication_issue", "charge", "charges", "1", "1"),
     ("procedure_performed", "charge", "charges", "1", "1"),
-    ("admits", "charge", "bed days", "1", "1"),
-    ("service", "tax_rule", "taxed by", "N", "1"),
+    ("admits", "charge", "bed charges", "1", "1"),
     ("registration", "charge", "accrues", "1", "N"),
     ("service", "charge", "charged as", "1", "N"),
     ("service", "payer_rate", "priced by", "1", "N"),
     ("registration", "bill", "generates", "1", "0..1"),
-    ("charge", "bill_line", "printed as", "1", "0..1"),
-    ("bill", "bill_line", "contains", "1", "N"),
+    ("charge", "bill", "billed on", "N", "0..1"),
     ("bill", "payment", "pays", "1", "N"),
     ("bill", "claim", "claims", "1", "N"),
     ("claim", "insurance", "claimed under", "N", "1"),
-    ("insurance", "payment", "settles", "1", "N"),
+    ("claim", "payment", "settles", "1", "N"),
 ]
-EXTRA_LINKS = {("services", "tax_rule_code"): ("tax_rule", "rule_code"),
-               ("charges", "tax_rule_code"): ("tax_rule", "rule_code")}
+EXTRA_LINKS: dict = {}
+# Attributes the ER diagram shows that live in a joined table here (filled in by _enrich).
+VIRTUAL = {"services": [("gst_rate_bps", "integer", None), ("hsn_sac", "text", None)],
+           "charges": [("invoice_id", "bigint", ("bill", "invoice_id"))]}
+
+
+def _enrich(conn, data: dict) -> None:
+    """ER: Service carries gst_rate and hsn_sac; Charge is 'billed on' a Bill (via the bill's lines)."""
+    if data.get("service", {}).get("rows"):
+        rules = {r["service_code"]: r for r in rows(conn, """SELECT s.service_code, t.rate_bps, t.hsn_sac FROM services s
+            JOIN tax_rules t ON t.rule_code=s.tax_rule_code WHERE s.service_code = ANY(%s)""",
+            ([r["service_code"] for r in data["service"]["rows"]],))}
+        for r in data["service"]["rows"]:
+            r["gst_rate_bps"], r["hsn_sac"] = rules[r["service_code"]]["rate_bps"], rules[r["service_code"]]["hsn_sac"]
+    if data.get("charge", {}).get("rows"):
+        billed = {r["charge_id"]: r["invoice_id"] for r in rows(conn, "SELECT charge_id, invoice_id FROM invoice_lines "
+                  "WHERE charge_id = ANY(%s)", ([r["charge_id"] for r in data["charge"]["rows"]],))}
+        for r in data["charge"]["rows"]:
+            r["invoice_id"] = billed.get(r["charge_id"])
 
 
 def _schema(conn) -> dict:
@@ -136,6 +147,10 @@ def _schema(conn) -> dict:
             link = fk_map.get((table, c["column_name"]))
             attrs.append({"name": c["column_name"], "type": c["data_type"], "pk": (table, c["column_name"]) in pk_set,
                           "fk": {"entity": link[0], "column": link[1]} if link and link[0] else None})
+        for name, typ, link in VIRTUAL.get(table, []):
+            if not any(a["name"] == name for a in attrs):
+                attrs.append({"name": name, "type": typ, "pk": False,
+                              "fk": {"entity": link[0], "column": link[1]} if link else None})
         pk = next((a["name"] for a in attrs if a["pk"]), attrs[0]["name"] if attrs else None)
         entities.append({"key": key, "er_name": er_name, "table": table, "kind": kind, "group": group,
                          "x": x, "y": y, "pk": pk, "attributes": attrs})
@@ -170,6 +185,7 @@ def datamap(patient_id: str, encounter_id: str = ""):
             data[key] = {"count": len(records), "rows": records}
             pk = pk_of[key]
             pairs += [(table, str(r[pk])) for r in records if pk in r]
+        _enrich(conn, data)
         # Workflow tables are not on the diagram, but their events belong in the who-did-what timeline.
         log_pairs = list(pairs)
         for table, pk, scope in WORKFLOW_LOG:

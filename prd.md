@@ -22,7 +22,7 @@
 ## Feature Requirements
 | Feature | Description | Priority | Acceptance criteria |
 |---|---|---|---|
-| ER-complete data model | Every entity in the updated ER diagram exists as a table | Must | `GET /api/datamap/schema` lists all 22 ER entities |
+| ER-complete data model | Every entity in the updated ER diagram exists as a table | Must | `GET /api/datamap/schema` lists every entity in the team's ER diagram, and only those |
 | Reception desk | Registration (MRN, ABHA), policy, appointment, check-in, verification, deposit | Must | New patient → visit → deposit via UI |
 | Coded doctor flow | ICD-10 picker + any lab/radiology/procedure/medicine orders; admit; discharge | Must | No hard-coded case; discharge blocked while orders pending |
 | Charge on completion | Each completed service posts one priced charge; retries are idempotent | Must | Duplicate event returns the original charge |

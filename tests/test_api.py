@@ -258,15 +258,19 @@ def test_g_data_map_covers_every_er_entity(client):
     names = {e["er_name"] for e in schema["entities"]}
     assert {"Patient", "Registration", "Doctor", "Consultation", "Prescription", "Ward", "Radiology Order",
             "Lab Order", "Pharmacy Order", "Procedure Order", "Radiology Result", "Lab Result", "Medication Issue",
-            "Procedure Performed", "Bill", "Bill Line", "Charge", "Payment", "Insurance", "Insurance Claim",
+            "Procedure Performed", "Bill", "Charge", "Payment", "Insurance", "Insurance Claim",
             "Service", "Payer Rate"} <= names
     charge = next(e for e in schema["entities"] if e["key"] == "charge")
     assert any(a["name"] == "service_code" and a["fk"]["entity"] == "service" for a in charge["attributes"])
+    assert any(a["name"] == "invoice_id" and a["fk"]["entity"] == "bill" for a in charge["attributes"])
+    assert not names & {"Bill Line", "Tax Rule"}  # not in the team's ER diagram
     data = call(client, "GET", "/api/datamap/P-DEMO-02")
     counts = {k: v["count"] for k, v in data["entities"].items()}
     assert counts["registration"] == 1 and counts["bill"] == 1 and counts["claim"] == 1 and counts["lab_result"] == 2
     assert counts["radiology_result"] == 1 and counts["admits"] == 1 and counts["ward"] == 1 and counts["insurance"] == 1
     assert data["timeline"] and all(e["actor"] for e in data["timeline"])
+    assert all(r["invoice_id"] for r in data["entities"]["charge"]["rows"])  # every charge on Dev's bill
+    assert all("gst_rate_bps" in r and "hsn_sac" in r for r in data["entities"]["service"]["rows"])
 
 
 def test_h_reports_and_reference_reads(client):

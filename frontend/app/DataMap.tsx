@@ -44,9 +44,17 @@ function edgePath(a: Row, b: Row, bus: boolean) {
     const y1 = A.cy - A.h / 2 + (a.key === "admits" ? A.h : 0), y2 = B.cy - 8;
     return { d: `M${A.cx},${y1} V${MID_Y} H${BUS_X} V${y2} H${B.cx - B.w / 2}`, mx: (A.cx + BUS_X) / 2, my: MID_Y };
   }
-  if (a.key === "registration" && (b.key === "bill" || b.key === "charge")) { // over the top of Ward
-    const x2 = b.key === "bill" ? B.cx - 20 : B.cx + 30;
-    return { d: `M${A.cx + 30},${A.cy - A.h / 2} V${TOP_Y - (b.key === "bill" ? 0 : 8)} H${x2} V${B.cy - B.h / 2}`, mx: (A.cx + x2) / 2, my: TOP_Y - (b.key === "bill" ? 0 : 8) };
+  if (a.key === "registration" && b.key === "charge") { // down into the shared trunk, entering Charge from the left
+    const x1 = A.cx + 40, y1 = A.cy + A.h / 2;
+    return { d: `M${x1},${y1} V${MID_Y} H${BUS_X} V${B.cy - 8} H${B.cx - B.w / 2}`, mx: BUS_X - 110, my: MID_Y };
+  }
+  if (a.key === "registration" && b.key === "bill") { // over the top of Ward
+    const x2 = B.cx - 20;
+    return { d: `M${A.cx + 30},${A.cy - A.h / 2} V${TOP_Y} H${x2} V${B.cy - B.h / 2}`, mx: (A.cx + x2) / 2, my: TOP_Y };
+  }
+  if (a.key === "claim" && b.key === "payment") { // down from the claim's corner, across, into Payment
+    const x1 = A.cx + A.w / 2 - 6, y1 = A.cy + A.h / 2;
+    return { d: `M${x1},${y1} V${TOP_Y + 6} H${B.cx} V${B.cy - B.h / 2}`, mx: (x1 + B.cx) / 2, my: TOP_Y + 6 };
   }
   const dx = B.cx - A.cx, dy = B.cy - A.cy;
   if (Math.abs(dx) > Math.abs(dy)) {
@@ -191,7 +199,8 @@ export default function DataMap({ ctx }: { ctx: Ctx }) {
             const tight = across && Math.abs(B.cx - A.cx) - (A.w + B.w) / 2 < 60;
             return <g key={`l${i}`} transform={`translate(${mx},${my})`} className="p-dmx-rel-top">
               <polygon points="0,-11 22,0 0,11 -22,0" className="p-dmx-diamond" />
-              {tight ? <text y={-Math.max(A.h, B.h) / 2 - 13} textAnchor="middle" className="p-dmx-rel-label">{r.label}</text>
+              {r.from === "registration" && r.to === "bill" ? <text y={-16} textAnchor="middle" className="p-dmx-rel-label">{r.label}</text>
+                : tight ? <text y={-Math.max(A.h, B.h) / 2 - 13} textAnchor="middle" className="p-dmx-rel-label">{r.label}</text>
                 : across ? <text y={24} textAnchor="middle" className="p-dmx-rel-label">{r.label}</text>
                 : <text x={27} y={4} className="p-dmx-rel-label">{r.label}</text>}
             </g>;
