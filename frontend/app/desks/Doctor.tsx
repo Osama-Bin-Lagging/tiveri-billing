@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, Ctx, Empty, Row, Tag, dateTime, money, statusTone } from "../lib";
 
 type Med = { item_code: string; quantity: number; instruction: string };
@@ -40,6 +40,13 @@ export default function Doctor({ ctx }: { ctx: Ctx }) {
   const [ward, setWard] = useState("W-GEN");
   const [outcome, setOutcome] = useState("Completed without complications.");
 
+  const prescriptions: Row[] = detail.prescriptions || [];
+  const lastIcd = prescriptions.length ? prescriptions[prescriptions.length - 1].icd_code : "";
+  // Follow-up orders usually keep the visit's diagnosis: start from the latest one (the doctor can change it).
+  useEffect(() => { setIcd(lastIcd); }, [eid, lastIcd]);
+  const hasOrders = labs.length || rads.length || procs.length || meds.length || admit;
+  const missing = !icd ? "Choose a diagnosis to save." : !hasOrders ? "Tick at least one test, procedure or medicine, or admit." : "";
+
   const toggle = (list: string[], set: (v: string[]) => void, code: string) => set(list.includes(code) ? list.filter(c => c !== code) : [...list, code]);
   const orders: Row[] = [
     ...(detail.lab_orders || []).map((o: Row) => ({ ...o, kind: "LAB", id: o.lab_order_id, code: `LOINC ${o.loinc_code}` })),
@@ -73,6 +80,8 @@ export default function Doctor({ ctx }: { ctx: Ctx }) {
 
       <Card title="Prescription and orders" sub="Coded diagnosis, then any orders" icon="Rx">
         {!consults.length ? <Empty>Record the consultation first.</Empty> : !open ? <Empty>The visit is discharged.</Empty> : <>
+          {prescriptions.length > 0 && <div className="p-rx-done">{prescriptions.map((p, i) => <div key={p.prescription_id}><b>Prescription {i + 1} · {p.icd_code} {p.diagnosis}</b><small>{dateTime(p.prescribed_at)} · {orders.filter(o => o.prescription_id === p.prescription_id).length} order(s)</small></div>)}
+            <p className="p-fineprint">Add more orders below; each save is a new prescription on this visit.</p></div>}
           <label className="p-field">Diagnosis (ICD-10)<select value={icd} onChange={e => setIcd(e.target.value)}>
             <option value="">Choose a diagnosis…</option>
             {(catalog.diagnoses || []).map((d: Row) => <option key={d.icd_code} value={d.icd_code}>{d.icd_code} — {d.title} (SNOMED {d.snomed_code})</option>)}</select></label>
@@ -92,7 +101,8 @@ export default function Doctor({ ctx }: { ctx: Ctx }) {
           {!admitted && <div className="p-admit"><label className="p-check"><input type="checkbox" checked={admit} onChange={e => setAdmit(e.target.checked)} /><span>Admit to a ward (IPD)</span></label>
             {admit && <select value={ward} onChange={e => setWard(e.target.value)}>{(catalog.wards || []).map((w: Row) => <option key={w.ward_id} value={w.ward_id}>{w.ward_name} · {money(w.base_unit_paise)}/day</option>)}</select>}</div>}
           <label className="p-field">Notes for the orders<input value={rxNotes} onChange={e => setRxNotes(e.target.value)} placeholder="e.g. Rule out consolidation" /></label>
-          <button className="p-primary" disabled={busy || !icd || !(labs.length || rads.length || procs.length || meds.length || admit)} onClick={sendOrders}>Save prescription and send orders</button>
+          <button className="p-primary" disabled={busy || !!missing} onClick={sendOrders}>{prescriptions.length ? "Save and send additional orders" : "Save prescription and send orders"}</button>
+          {missing && <p className="p-field-hint">{missing}</p>}
           <p className="p-fineprint">The diagnosis comes from the coded list, never free text. Charges post only when each service is completed.</p>
         </>}
       </Card>
