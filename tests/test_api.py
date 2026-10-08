@@ -271,6 +271,11 @@ def test_g_data_map_covers_every_er_entity(client):
     assert data["timeline"] and all(e["actor"] for e in data["timeline"])
     assert all(r["invoice_id"] for r in data["entities"]["charge"]["rows"])  # every charge on Dev's bill
     assert all("gst_rate_bps" in r and "hsn_sac" in r for r in data["entities"]["service"]["rows"])
+    # Attributes from the schema slides that are derived or joined are filled in.
+    ent = data["entities"]
+    assert ent["patient"]["rows"][0]["age"] > 0 and ent["bill"]["rows"][0]["payment_status"] in {"UNPAID", "PARTIAL", "PAID"}
+    assert all(r["test_name"] and r["loinc_code"] for r in ent["lab_order"]["rows"])
+    assert all(r["item_type"] for r in ent["charge"]["rows"]) and ent["doctor"]["rows"][0]["fees_paise"] > 0
 
 
 def test_h_reports_and_reference_reads(client):

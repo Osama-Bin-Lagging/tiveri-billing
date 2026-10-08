@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from .core import db, need, one, rows
+from .core import age_years, balance_for, db, need, one, rows
 
 router = APIRouter()
 
@@ -103,24 +103,53 @@ RELATIONS = [
     ("claim", "payment", "settles", "1", "N"),
 ]
 EXTRA_LINKS: dict = {}
-# Attributes the ER diagram shows that live in a joined table here (filled in by _enrich).
-VIRTUAL = {"services": [("gst_rate_bps", "integer", None), ("hsn_sac", "text", None)],
-           "charges": [("invoice_id", "bigint", ("bill", "invoice_id"))]}
+# Attributes the ER diagram / schema slides show that are derived or live in a joined table here (see _enrich).
+VIRTUAL = {
+    "patients": [("age", "integer", None)],
+    "doctors": [("fees_paise", "bigint", None)],
+    "lab_orders": [("test_name", "text", None), ("loinc_code", "text", None)],
+    "radiology_orders": [("study_name", "text", None)],
+    "procedure_orders": [("procedure_name", "text", None)],
+    "pharmacy_orders": [("medicine_name", "text", None)],
+    "dispenses": [("status", "text", None)],
+    "services": [("gst_rate_bps", "integer", None), ("hsn_sac", "text", None)],
+    "charges": [("item_type", "text", None), ("invoice_id", "bigint", ("bill", "invoice_id"))],
+    "invoices": [("payment_status", "text", None)],
+}
+# key -> (id column on the row, SQL returning id + extra columns for a list of ids)
+_LOOKUPS = {
+    "doctor": ("doctor_id", """SELECT d.doctor_id AS id, s.base_unit_paise AS fees_paise FROM doctors d
+        JOIN services s ON s.service_code=d.consult_service_code WHERE d.doctor_id = ANY(%s)"""),
+    "lab_order": ("lab_order_id", """SELECT o.lab_order_id AS id, s.description AS test_name, c.loinc_code FROM lab_orders o
+        JOIN services s USING(service_code) JOIN lab_catalog c USING(service_code) WHERE o.lab_order_id = ANY(%s)"""),
+    "radiology_order": ("rad_order_id", """SELECT o.rad_order_id AS id, s.description AS study_name FROM radiology_orders o
+        JOIN services s USING(service_code) WHERE o.rad_order_id = ANY(%s)"""),
+    "procedure_order": ("proc_order_id", """SELECT o.proc_order_id AS id, s.description AS procedure_name
+        FROM procedure_orders o JOIN services s USING(service_code) WHERE o.proc_order_id = ANY(%s)"""),
+    "pharmacy_order": ("pharm_order_id", """SELECT o.pharm_order_id AS id, i.display_name AS medicine_name
+        FROM pharmacy_orders o JOIN pharmacy_items i USING(item_code) WHERE o.pharm_order_id = ANY(%s)"""),
+    "medication_issue": ("dispense_id", """SELECT d.dispense_id AS id, CASE o.status WHEN 'CANCELLED' THEN 'CANCELLED'
+        ELSE 'ISSUED' END AS status FROM dispenses d JOIN pharmacy_orders o USING(pharm_order_id) WHERE d.dispense_id = ANY(%s)"""),
+    "service": ("service_code", """SELECT s.service_code AS id, t.rate_bps AS gst_rate_bps, t.hsn_sac FROM services s
+        JOIN tax_rules t ON t.rule_code=s.tax_rule_code WHERE s.service_code = ANY(%s)"""),
+    "charge": ("charge_id", """SELECT c.charge_id AS id, s.kind AS item_type, l.invoice_id FROM charges c
+        JOIN services s USING(service_code) LEFT JOIN invoice_lines l ON l.charge_id=c.charge_id WHERE c.charge_id = ANY(%s)"""),
+}
 
 
 def _enrich(conn, data: dict) -> None:
-    """ER: Service carries gst_rate and hsn_sac; Charge is 'billed on' a Bill (via the bill's lines)."""
-    if data.get("service", {}).get("rows"):
-        rules = {r["service_code"]: r for r in rows(conn, """SELECT s.service_code, t.rate_bps, t.hsn_sac FROM services s
-            JOIN tax_rules t ON t.rule_code=s.tax_rule_code WHERE s.service_code = ANY(%s)""",
-            ([r["service_code"] for r in data["service"]["rows"]],))}
-        for r in data["service"]["rows"]:
-            r["gst_rate_bps"], r["hsn_sac"] = rules[r["service_code"]]["rate_bps"], rules[r["service_code"]]["hsn_sac"]
-    if data.get("charge", {}).get("rows"):
-        billed = {r["charge_id"]: r["invoice_id"] for r in rows(conn, "SELECT charge_id, invoice_id FROM invoice_lines "
-                  "WHERE charge_id = ANY(%s)", ([r["charge_id"] for r in data["charge"]["rows"]],))}
-        for r in data["charge"]["rows"]:
-            r["invoice_id"] = billed.get(r["charge_id"])
+    """Fill in the derived / joined attributes listed in VIRTUAL so each record matches the schema slides."""
+    for key, (col, sql) in _LOOKUPS.items():
+        recs = data.get(key, {}).get("rows") or []
+        if not recs:
+            continue
+        extra = {str(r.pop("id")): r for r in rows(conn, sql, ([r[col] for r in recs],))}
+        for r in recs:
+            r.update(extra.get(str(r[col]), {}))
+    for r in data.get("patient", {}).get("rows") or []:
+        r["age"] = age_years(r["dob"])
+    for r in data.get("bill", {}).get("rows") or []:
+        r["payment_status"] = balance_for(conn, r)["payment_status"]
 
 
 def _schema(conn) -> dict:
